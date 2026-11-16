@@ -3,11 +3,15 @@
 
 import { esc, icon, confirmDialog, multiline, plural } from '../ui.js';
 import {
-  getState, addTask, updateProject, addProjectEntry, removeProjectEntry,
+  getState, addTask, updateProject, addProjectEntry, removeProjectEntry, reorderProjectTasks,
   PROJECT_STATUSES, PROJECT_STATUS_LABEL, PRIORITY_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL,
 } from '../store.js';
-import { projectOf, projectStats, projectTasks, projectEvents, projectActivity, projectJournal, journalHeading, byDue, isOpen, isLateDelivery } from '../query.js';
+import {
+  projectOf, projectStats, projectTasks, projectEvents, projectActivity, projectJournal, journalHeading,
+  byManual, isOpen, isLateDelivery, PRIORITY_RANKING,
+} from '../query.js';
 import { taskRow, eventRow, emptyState, progressBar, categoryChip, tagChips, statusBadge, priorityChip, activityRow } from '../components.js';
+import { sortable } from '../drag.js';
 import { fmtRelative, fmtShort, fmtMoment, todayKey, cap } from '../dates.js';
 
 const FILTERS = [['active', 'Activos'], ['paused', 'En pausa'], ['done', 'Terminados'], ['all', 'Todos']];
@@ -68,7 +72,8 @@ function listView(ctx) {
 function detailView(p, ctx) {
   const s = projectStats(p.id);
   const tasks = projectTasks(p.id);
-  const open = tasks.filter(isOpen).sort(byDue);
+  // Por prioridad y, dentro de cada una, en el orden en que se hayan colocado arrastrándolas.
+  const open = tasks.filter(isOpen).sort(byManual);
   const done = tasks.filter((t) => !isOpen(t)).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
   const events = projectEvents(p.id);
   // Una entrega vencida sin entregar sigue pendiente: va arriba, no con los pasados.
@@ -116,7 +121,7 @@ function detailView(p, ctx) {
             <input name="title" data-fk="project-task" autocomplete="off" enterkeyhint="done" aria-label="Nueva tarea del proyecto" placeholder="Nueva tarea del proyecto">
             <button class="btn btn-sm btn-primary">Añadir</button>
           </form>
-          ${open.length ? `<div class="list">${open.map((t) => taskRow(t, { project: false })).join('')}</div>` : ''}
+          ${open.length ? `<div class="list" data-sort-list="project">${open.map((t) => taskRow(t, { project: false, sortable: true })).join('')}</div>` : ''}
           ${!tasks.length ? '<p class="day-empty">Divide el proyecto en pasos pequeños y ve tachándolos.</p>' : ''}
           ${done.length ? `
             <button class="disclosure" data-toggle-done aria-expanded="${showDone}">${icon(showDone ? 'arrow-up' : 'arrow-down')}<span>${plural(done.length, 'hecha', 'hechas')}</span></button>
@@ -223,6 +228,9 @@ export function mount(root, ctx) {
     input.value = '';
     addTask({ title, projectId: id, categoryId: projectOf(id)?.categoryId || '' });
   });
+
+  const list = root.querySelector('[data-sort-list="project"]');
+  if (list) sortable(list, { groups: PRIORITY_RANKING, onDrop: ({ ids }) => reorderProjectTasks(id, ids) });
 
   root.querySelector('[data-toggle-done]')?.addEventListener('click', () => ctx.set('showDone', !ctx.showDone));
 

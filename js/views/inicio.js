@@ -89,8 +89,9 @@ function widgetCalendario(ctx) {
 function widgetSprint() {
   const s = sprintsOn() ? currentSprint() : null;
   if (!s) return '';
+  // Como en el tablero: primero lo que está en curso y, en cada columna, por prioridad y en su orden.
   const tasks = sprintTasks(s);
-  const open = tasks.filter(isOpen).sort((a, b) => Number(b.status === 'doing') - Number(a.status === 'doing') || byDue(a, b));
+  const open = tasks.filter(isOpen).sort((a, b) => Number(b.status === 'doing') - Number(a.status === 'doing'));
   const done = tasks.length - open.length;
   return card({
     title: 'Sprint de la semana',

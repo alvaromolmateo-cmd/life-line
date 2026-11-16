@@ -5,14 +5,15 @@
 import { esc, icon, openModal, modalHeader, openMenu, confirmDialog, multiline, plural, toast } from '../ui.js';
 import {
   getState, addTask, updateTask, addSprint, updateSprint, removeSprint,
-  addSprintTask, removeSprintTask, closeSprint, reopenSprint, carryWeek,
+  addSprintTask, removeSprintTask, moveSprintTask, closeSprint, reopenSprint, carryWeek,
 } from '../store.js';
 import {
   sprints, sprintOf, sprintForWeek, sprintState, sprintTasks, sprintItems, sprintStats,
-  SPRINT_STATE_LABEL, thisWeek, weekLabel, openTasks, taskOf, byDue, fold, sprintsOn,
+  SPRINT_STATE_LABEL, thisWeek, weekLabel, openTasks, taskOf, fold, sprintsOn, PRIORITY_RANKING,
 } from '../query.js';
 import { taskRow, emptyState, progressBar, chip, dueChip, priorityChip } from '../components.js';
 import { formModal, field, openTaskForm } from '../forms.js';
+import { sortable } from '../drag.js';
 import {
   todayKey, toKey, addDays, diffDays, weekDays, isoWeek, isKey, weekStart,
   fmtWeekRange, fmtLong, fmtMoment, cap,
@@ -104,10 +105,11 @@ function planView(week) {
 function openView(s) {
   const state = sprintState(s);
   const today = todayKey();
+  // Cada columna, por prioridad y, dentro de cada una, en el orden en que se hayan colocado arrastrándolas.
   const tasks = sprintTasks(s);
-  const pending = tasks.filter((t) => t.status === 'pending').sort(byDue);
-  const doing = tasks.filter((t) => t.status === 'doing').sort(byDue);
-  const done = tasks.filter((t) => t.status === 'done').sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+  const pending = tasks.filter((t) => t.status === 'pending');
+  const doing = tasks.filter((t) => t.status === 'doing');
+  const done = tasks.filter((t) => t.status === 'done');
 
   const days = diffDays(s.start, today);
   const when = state === 'active' ? `Día ${diffDays(today, s.start) + 1} de 7`
@@ -115,11 +117,12 @@ function openView(s) {
       : '';
   const newTask = state === 'active' ? 'Nueva tarea para esta semana' : 'Nueva tarea para el sprint';
 
-  const row = (t) => taskRow(t, { sprint: false, status: false, category: false, after: moreButton(`data-task-menu="${t.id}"`, 'Opciones de la tarea') });
-  const column = (title, list, hint) => `
-    <section class="board-col">
+  // Las tareas se arrastran dentro de su columna o a otra, que cambia su estado.
+  const row = (t) => taskRow(t, { sprint: false, status: false, category: false, sortable: true, after: moreButton(`data-task-menu="${t.id}"`, 'Opciones de la tarea') });
+  const column = (status, title, list, hint) => `
+    <section class="board-col" data-sort-zone>
       <p class="group-title">${title} <span class="count">${list.length}</span></p>
-      <div class="card list-card">${list.length ? list.map(row).join('') : `<p class="board-empty">${hint}</p>`}</div>
+      <div class="card list-card" data-sort-list="${status}">${list.map(row).join('')}<p class="board-empty" data-sort-empty${list.length ? ' hidden' : ''}>${hint}</p></div>
     </section>`;
 
   return `
@@ -150,10 +153,10 @@ function openView(s) {
     </div>
 
     ${tasks.length ? `
-      <div class="board">
-        ${column('Pendientes', pending, 'Lo que queda por empezar')}
-        ${column('En curso', doing, 'Lo que tengas entre manos')}
-        ${column('Hechas', done, 'Lo que vayas terminando')}
+      <div class="board" data-board>
+        ${column('pending', 'Pendientes', pending, 'Lo que queda por empezar')}
+        ${column('doing', 'En curso', doing, 'Lo que tengas entre manos')}
+        ${column('done', 'Hechas', done, 'Lo que vayas terminando')}
       </div>`
     : emptyState('check-square', 'Semana por llenar', 'Añade las tareas en las que quieres avanzar. Puedes elegirlas de tu lista general o de tus proyectos, o escribir una nueva.')}`;
 }
@@ -411,6 +414,9 @@ export function mount(root, ctx) {
     input.value = '';
     addSprintTask(s.id, addTask({ title }));
   });
+
+  const board = root.querySelector('[data-board]');
+  if (board) sortable(board, { groups: PRIORITY_RANKING, onDrop: ({ id, to, ids }) => moveSprintTask(s.id, id, to, ids) });
 
   root.querySelector('[data-pick]')?.addEventListener('click', () => openPicker(s.id));
   root.querySelector('[data-close-sprint]')?.addEventListener('click', () => openCloseForm(s.id));

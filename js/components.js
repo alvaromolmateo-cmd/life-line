@@ -46,7 +46,8 @@ export const sprintChip = (t) => {
 };
 
 // Fila de tarea: casilla para completarla y el resto abre su ficha. `after` es HTML para el final de la fila.
-export function taskRow(t, { project = true, due = true, category = true, sprint = true, status = true, after = '' } = {}) {
+// Con `sortable` se puede arrastrar para ordenarla entre las de su misma prioridad (ver drag.js).
+export function taskRow(t, { project = true, due = true, category = true, sprint = true, status = true, sortable = false, after = '' } = {}) {
   const done = !isOpen(t);
   // La tarea de una entrega lo indica, con la hora límite si el evento la tiene.
   const delivery = taskDelivery(t);
@@ -61,7 +62,7 @@ export function taskRow(t, { project = true, due = true, category = true, sprint
     tagChips(t.tags),
   ].join('');
   return `
-    <div class="task ${done ? 'done' : ''}">
+    <div class="task ${done ? 'done' : ''}"${sortable ? ` data-sort-id="${esc(t.id)}" data-sort-group="${t.priority}"` : ''}>
       <button class="check ${done ? 'on' : ''}" data-act="toggle-task" data-id="${t.id}" aria-pressed="${done}" aria-label="${done ? 'Marcar como pendiente' : 'Marcar como hecha'}">${icon('check')}</button>
       <button class="task-main" data-act="open-task" data-id="${t.id}">
         <span class="task-title">${esc(t.title)}</span>

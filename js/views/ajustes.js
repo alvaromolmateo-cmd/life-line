@@ -9,7 +9,7 @@ import { topCategories, subcategories } from '../query.js';
 import { openCategoryForm } from '../forms.js';
 import { todayKey, fmtMoment } from '../dates.js';
 
-export const APP_VERSION = '1.2.0'; // la misma que VERSION en sw.js
+export const APP_VERSION = '1.3.0'; // la misma que VERSION en sw.js
 
 const THEMES = [['auto', 'Como el dispositivo'], ['light', 'Claro'], ['dark', 'Oscuro']];
 
@@ -63,7 +63,7 @@ function sprintsSection(on) {
 
     <p class="guide-title">Con sprints o sin ellos</p>
     <div class="guide">
-      ${guideRow('sprint', 'violet', 'Con sprints', 'Planificas al empezar la semana, sigues el tablero y cierras al terminar. Inicio enseña el sprint en curso y las tareas elegidas llevan la etiqueta Sprint.')}
+      ${guideRow('sprint', 'violet', 'Con sprints', 'Planificas al empezar la semana, sigues el tablero arrastrando cada tarea de pendientes a en curso y a hechas, y cierras al terminar. Inicio enseña el sprint en curso y las tareas elegidas llevan la etiqueta Sprint.')}
       ${guideRow('check', 'green', 'Sin sprints', 'Te organizas por fechas, prioridades y proyectos. Tareas, calendario, diario y registros funcionan completos por sí solos.')}
       ${guideRow('clock', 'amber', 'A ratos', 'Una semana sin sprint es una semana normal. Puedes planificar solo las que lo pidan, como la de antes de un examen.')}
     </div>`,

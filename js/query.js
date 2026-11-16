@@ -5,11 +5,19 @@ import { getState, EVENT_TYPE_LABEL, ENTRY_KIND_LABEL, PROJECT_STATUS_LABEL } fr
 import { todayKey, fmtRelative, fmtLong, fmtWeekRange, weekStart, diffDays, isoWeek, cap } from './dates.js';
 
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
+// Las prioridades de más a menos: los grupos dentro de los que se ordena arrastrando.
+export const PRIORITY_RANKING = ['high', 'normal', 'low'];
 
 // Primero lo que vence antes; sin fecha, al final. A igualdad, la prioridad y luego la antigüedad.
 export const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999')
   || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
   || a.createdAt.localeCompare(b.createdAt);
+
+// Orden manual: la prioridad manda siempre (alta, normal, baja) y, dentro de cada una, el orden que se
+// le haya dado a cada tarea arrastrándola. `sort` es estable, así que ordenar por prioridad una lista que
+// ya está en su orden manual, como las tareas de un sprint, conserva ese orden dentro de cada prioridad.
+export const byPriority = (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+export const byManual = (a, b) => byPriority(a, b) || a.order - b.order || a.createdAt.localeCompare(b.createdAt);
 
 // Los eventos de todo el día van antes que los que tienen hora.
 export const byTime = (a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || '') || a.title.localeCompare(b.title);
@@ -121,7 +129,8 @@ export function sprintState(s) {
   return s.start > week ? 'planned' : s.start === week ? 'active' : 'review';
 }
 
-export const sprintTasks = (s) => s.taskIds.map(taskOf).filter(Boolean);
+// En el orden del sprint, por prioridad y, dentro de cada una, como se hayan colocado en el tablero.
+export const sprintTasks = (s) => s.taskIds.map(taskOf).filter(Boolean).sort(byPriority);
 
 // Cómo va cada tarea del sprint. Uno cerrado responde con lo que quedó guardado al cerrarlo.
 export function sprintItems(s) {

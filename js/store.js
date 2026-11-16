@@ -8,13 +8,14 @@ import { uid } from './ui.js';
 import { isKey, isTime, weekStart, todayKey, addDays, fmtWeekRange, fmtLong } from './dates.js';
 
 const STORAGE_KEY = 'lifeline:data';
-export const DATA_VERSION = 5;
+export const DATA_VERSION = 6;
 
 export const TASK_STATUSES = ['pending', 'doing', 'done'];
 export const TASK_STATUS_LABEL = { pending: 'Pendiente', doing: 'En curso', done: 'Hecha' };
 
 export const PRIORITIES = ['low', 'normal', 'high'];
 export const PRIORITY_LABEL = { low: 'Baja', normal: 'Normal', high: 'Alta' };
+const PRIORITY_RANK = { high: 0, normal: 1, low: 2 };
 
 export const PROJECT_STATUSES = ['active', 'paused', 'done'];
 export const PROJECT_STATUS_LABEL = { active: 'Activo', paused: 'En pausa', done: 'Terminado' };
@@ -161,10 +162,34 @@ function normTask(t, refs) {
     projectId: refs.projects.has(t.projectId) ? t.projectId : '',
     due: cleanKey(t.due),
     tags: cleanTags(t.tags),
+    // Orden manual dentro de su proyecto. Solo decide entre tareas de la misma prioridad.
+    order: Number.isFinite(t.order) ? t.order : 0,
     createdAt: cleanIso(t.createdAt) || now(),
     completedAt: status === 'done' ? (cleanIso(t.completedAt) || now()) : '',
   };
 }
+
+// ---------- Orden manual ----------
+// La prioridad manda siempre: alta, normal y baja. Dentro de cada prioridad, las tareas de un proyecto
+// van por su `order` y las de un sprint, en el orden de `taskIds`. Lo que se crea o llega a un proyecto
+// se coloca al final.
+const byOrder = (a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt);
+const nextOrder = (st) => Math.max(-1, ...st.tasks.map((t) => t.order)) + 1;
+
+// Coloca los elementos de `ids` en ese orden dentro de `list`, en los mismos huecos que ocupaban entre
+// todos; el resto no se mueve. Así se reordena una columna o las tareas abiertas sin tocar lo demás.
+function arrange(list, ids, idOf = (x) => x) {
+  const byId = new Map(list.map((x) => [idOf(x), x]));
+  const wanted = [...new Set(ids)].filter((id) => byId.has(id));
+  const set = new Set(wanted);
+  const queue = wanted.map((id) => byId.get(id));
+  return list.map((x) => (set.has(idOf(x)) ? queue.shift() : x));
+}
+
+// Orden en que se veían las tareas antes de la versión 6: fecha límite, prioridad y antigüedad.
+const byDueAsBefore = (a, b) => (a.due || '9999').localeCompare(b.due || '9999')
+  || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
+  || a.createdAt.localeCompare(b.createdAt);
 
 // Una entrega es la fecha límite de algo que hay que entregar y va unida a su tarea (`taskId`), que
 // es la que se marca como hecha. Ver «Entregas» más abajo.
@@ -274,6 +299,7 @@ function newDeliveryTask(st, ev, legacy = {}) {
   const task = normTask({
     id: uid(),
     status: delivered ? 'done' : 'pending',
+    order: nextOrder(st),
     createdAt: cleanIso(ev.createdAt) || now(),
     completedAt: delivered ? legacy.doneAt : '',
   }, refsOf(st));
@@ -345,6 +371,16 @@ function migrate(data) {
   refs = refsOf(out);
   out.journal = (Array.isArray(data.journal) ? data.journal : []).filter(Boolean).map((j) => normJournal(j, refs)).filter((j) => j.date && (j.text.trim() || j.title));
   out.sprints = (Array.isArray(data.sprints) ? data.sprints : []).filter(Boolean).map(normSprint).filter((s) => s.start);
+  // Versión 6 – Orden manual. Las tareas empiezan en el orden en que se veían y los sprints abiertos
+  // colocan las suyas igual, para que nada cambie de sitio dentro de su prioridad al actualizar.
+  if (from < 6) {
+    const seq = out.tasks.slice().sort(byDueAsBefore);
+    seq.forEach((t, i) => { t.order = i; });
+    const rank = new Map(seq.map((t, i) => [t.id, i]));
+    for (const s of out.sprints) {
+      if (!s.closedAt) s.taskIds.sort((a, b) => (rank.get(a) ?? seq.length) - (rank.get(b) ?? seq.length));
+    }
+  }
 
   const notes = data.dayNotes && typeof data.dayNotes === 'object' ? data.dayNotes : {};
   out.dayNotes = Object.fromEntries(Object.entries(notes).filter(([k, v]) => isKey(k) && str(v).trim()).map(([k, v]) => [k, str(v)]));
@@ -517,7 +553,7 @@ export function removeInbox(id) {
 export function addTask(data) {
   let id = null;
   update((st) => {
-    const task = normTask({ ...data, id: uid(), createdAt: now() }, refsOf(st));
+    const task = normTask({ ...data, id: uid(), order: nextOrder(st), createdAt: now() }, refsOf(st));
     id = task.id;
     st.tasks.push(task);
     log(st, 'created', 'task', task);
@@ -526,19 +562,32 @@ export function addTask(data) {
   return id;
 }
 
+function patchTask(st, id, patch) {
+  const task = st.tasks.find((t) => t.id === id);
+  if (!task) return;
+  const wasDone = task.status === 'done';
+  const next = normTask({ ...task, ...patch, order: task.order, completedAt: task.completedAt }, refsOf(st));
+  if (!wasDone && next.status === 'done') next.completedAt = now();
+  // Al pasar a otro proyecto se coloca al final de sus tareas.
+  if (next.projectId !== task.projectId) next.order = nextOrder(st);
+  Object.assign(task, next);
+  // La tarea de una entrega pasa sus cambios al evento.
+  const delivery = deliveryOfTask(st, id);
+  if (delivery) copyToEvent(delivery, task);
+  if (!wasDone && task.status === 'done') log(st, 'completed', 'task', task);
+  if (wasDone && task.status !== 'done') log(st, 'reopened', 'task', task);
+}
+
 export function updateTask(id, patch) {
+  update((st) => patchTask(st, id, patch));
+}
+
+// Recoloca las tareas abiertas de un proyecto en el orden de `ids`, tal como quedan tras arrastrar una.
+// Las hechas conservan su sitio, por si se vuelven a abrir.
+export function reorderProjectTasks(projectId, ids) {
   update((st) => {
-    const task = st.tasks.find((t) => t.id === id);
-    if (!task) return;
-    const wasDone = task.status === 'done';
-    const next = normTask({ ...task, ...patch, completedAt: task.completedAt }, refsOf(st));
-    if (!wasDone && next.status === 'done') next.completedAt = now();
-    Object.assign(task, next);
-    // La tarea de una entrega pasa sus cambios al evento.
-    const delivery = deliveryOfTask(st, id);
-    if (delivery) copyToEvent(delivery, task);
-    if (!wasDone && task.status === 'done') log(st, 'completed', 'task', task);
-    if (wasDone && task.status !== 'done') log(st, 'reopened', 'task', task);
+    const seq = st.tasks.filter((t) => t.projectId === projectId).sort(byOrder);
+    arrange(seq, ids, (t) => t.id).forEach((t, i) => { t.order = i; });
   });
 }
 
@@ -646,7 +695,9 @@ export function updateEvent(id, patch) {
       event.taskId = task.id;
       log(st, 'created', 'task', task);
     }
+    const project = task.projectId;
     copyToTask(task, event);
+    if (task.projectId !== project) task.order = nextOrder(st);
   });
 }
 
@@ -704,6 +755,17 @@ export function addSprintTask(id, taskId) {
     const sprint = findSprint(st, id);
     if (!sprint || sprint.closedAt || sprint.taskIds.includes(taskId)) return;
     if (st.tasks.some((t) => t.id === taskId)) sprint.taskIds.push(taskId);
+  });
+}
+
+// Arrastre en el tablero: la tarea pasa a la columna `status` (pendiente, en curso o hecha) y esa
+// columna queda en el orden de `ids`. Todo en un solo cambio.
+export function moveSprintTask(id, taskId, status, ids) {
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (!sprint || sprint.closedAt || !sprint.taskIds.includes(taskId)) return;
+    if (TASK_STATUSES.includes(status)) patchTask(st, taskId, { status });
+    sprint.taskIds = arrange(sprint.taskIds, ids);
   });
 }
 

@@ -356,6 +356,22 @@ h1 { font-size: 27px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em
 .filter select { width: auto; min-height: 36px; padding: 6px 30px 6px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 500; }
 .filter select.on { border-color: var(--primary); background-color: var(--primary-soft); color: var(--primary); }
 
+/* Ordenar arrastrando: la fila deja su hueco en la lista y una copia sigue al puntero. Las de otra
+   prioridad se apagan, porque la fila solo puede caer entre las de la suya. */
+[data-sort-id] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; transition: opacity .15s; }
+@media (hover: hover) and (pointer: fine) {
+  [data-sort-id] .task-main { cursor: grab; }
+}
+body.is-sorting, body.is-sorting * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+.sort-placeholder { border-radius: 10px; background: var(--primary-soft); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--primary) 45%, transparent); }
+.sort-placeholder > * { visibility: hidden; }
+.sorting .sort-off { opacity: .35; }
+.drag-ghost {
+  position: fixed; z-index: 90; left: 0; top: 0; margin: 0; padding: 9px 12px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: var(--shadow-lg); pointer-events: none; will-change: transform;
+}
+
 .inbox-item { display: flex; align-items: center; gap: 10px; padding: 10px 2px; }
 .inbox-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .inbox-text small { color: var(--muted); font-size: 12px; }
@@ -546,6 +562,10 @@ h1 { font-size: 27px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em
 .board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
 .board-col .group-title { margin-top: 0; }
 .board-empty { padding: 14px 0; color: var(--muted); font-size: 13.5px; text-align: center; }
+/* Mientras se arrastra, cada columna ocupa todo el alto del tablero para poder soltar en cualquier punto. */
+.board.sorting { align-items: stretch; }
+.board.sorting .board-col { display: flex; flex-direction: column; }
+.board.sorting .board-col > .list-card { flex: 1; }
 .task > .icon-btn { margin: -4px -6px -4px 0; }
 .check.static { pointer-events: none; }
 
