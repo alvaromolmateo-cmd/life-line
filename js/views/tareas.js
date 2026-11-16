@@ -2,7 +2,7 @@
 
 import { esc, icon, confirmDialog, plural, toast, multiline } from '../ui.js';
 import { getState, addTask, addInbox, removeInbox, PRIORITIES, PRIORITY_LABEL } from '../store.js';
-import { openTasks, doneTasks, categories, isOverdue } from '../query.js';
+import { openTasks, doneTasks, categories, categoryOf, categoryPath, inCategory, isOverdue } from '../query.js';
 import { taskRow, emptyState } from '../components.js';
 import { todayKey, addDays, toKey, fmtMonth, fmtMoment, monthOf, weekStart } from '../dates.js';
 
@@ -15,7 +15,7 @@ const group = (title, tasks, cls = '') => (tasks.length ? `
   </section>` : '');
 
 function applyFilter(tasks, f) {
-  return tasks.filter((t) => (!f.category || t.categoryId === f.category)
+  return tasks.filter((t) => inCategory(t.categoryId, f.category)
     && (!f.project || t.projectId === f.project)
     && (!f.priority || t.priority === f.priority));
 }
@@ -33,7 +33,7 @@ function filtersBar(f) {
   const active = f.category || f.project || f.priority;
   return `
     <div class="filters">
-      ${select('category', 'Categoría', categories().map((c) => [c.id, c.name]))}
+      ${select('category', 'Categoría', categories().map((c) => [c.id, categoryPath(c.id)]))}
       ${st.projects.length ? select('project', 'Proyecto', st.projects.map((p) => [p.id, p.title])) : ''}
       ${select('priority', 'Prioridad', PRIORITIES.slice().reverse().map((p) => [p, PRIORITY_LABEL[p]]))}
       ${active ? `<button class="btn btn-ghost btn-sm" data-clear-filters>${icon('x')}<span>Quitar filtros</span></button>` : ''}
@@ -152,7 +152,7 @@ export function mount(root, ctx) {
     if (!title) return;
     input.value = '';
     const f = ctx.taskFilter;
-    addTask({ title, categoryId: f.category, projectId: f.project, priority: f.priority || 'normal' });
+    addTask({ title, categoryId: f.category, projectId: f.project, priority: f.priority || (categoryOf(f.category)?.parentId ? categoryOf(f.category).priority : 'normal') });
   });
 
   root.querySelector('[data-capture]')?.addEventListener('submit', (e) => {

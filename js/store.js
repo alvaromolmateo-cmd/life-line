@@ -8,7 +8,7 @@ import { uid } from './ui.js';
 import { isKey, isTime, weekStart, todayKey, addDays, fmtWeekRange, fmtLong } from './dates.js';
 
 const STORAGE_KEY = 'lifeline:data';
-export const DATA_VERSION = 3;
+export const DATA_VERSION = 4;
 
 export const TASK_STATUSES = ['pending', 'doing', 'done'];
 export const TASK_STATUS_LABEL = { pending: 'Pendiente', doing: 'En curso', done: 'Hecha' };
@@ -107,6 +107,9 @@ function normCategory(c, i) {
     name: str(c.name).trim() || 'Categoría',
     color: oneOf(c.color, COLORS, 'indigo'),
     order: Number.isFinite(c.order) ? c.order : i,
+    // Subcategoría: cuelga de una categoría principal y su prioridad la ordena y se propone a sus tareas.
+    parentId: str(c.parentId),
+    priority: oneOf(c.priority, PRIORITIES, 'normal'),
   };
 }
 
@@ -245,6 +248,9 @@ function migrate(data) {
   out.version = DATA_VERSION;
 
   out.categories = Array.isArray(data.categories) ? data.categories.filter(Boolean).map(normCategory) : out.categories;
+  // Versión 4 – Subcategorías. Solo valen las que cuelgan de una categoría principal que existe.
+  const tops = new Set(out.categories.filter((c) => !c.parentId).map((c) => c.id));
+  for (const c of out.categories) if (c.parentId && (!tops.has(c.parentId) || c.parentId === c.id)) c.parentId = '';
   out.projects = [];
   let refs = refsOf(out);
   out.projects = (Array.isArray(data.projects) ? data.projects : []).filter(Boolean).map((p) => normProject(p, refs));
@@ -726,11 +732,21 @@ export function setDayNote(key, text, opts) {
 }
 
 // ---------- Categorías ----------
-export function addCategory({ name, color }) {
+// Un solo nivel de subcategorías: una subcategoría cuelga de una categoría principal, nunca de otra
+// subcategoría, y una categoría que ya tiene subcategorías no puede pasar a ser una de ellas.
+function validParent(st, catId, parentId) {
+  if (!parentId || parentId === catId) return '';
+  const parent = st.categories.find((c) => c.id === parentId);
+  if (!parent || parent.parentId) return '';
+  if (catId && st.categories.some((c) => c.parentId === catId)) return '';
+  return parentId;
+}
+
+export function addCategory({ name, color, priority, parentId = '' }) {
   let id = null;
   update((st) => {
     const order = Math.max(-1, ...st.categories.map((c) => c.order)) + 1;
-    const cat = normCategory({ id: uid(), name, color, order }, order);
+    const cat = normCategory({ id: uid(), name, color, priority, order, parentId: validParent(st, '', parentId) }, order);
     id = cat.id;
     st.categories.push(cat);
   });
@@ -740,13 +756,16 @@ export function addCategory({ name, color }) {
 export function updateCategory(id, patch) {
   update((st) => {
     const cat = st.categories.find((c) => c.id === id);
-    if (cat) Object.assign(cat, normCategory({ ...cat, ...patch }, cat.order));
+    if (!cat) return;
+    const parentId = 'parentId' in patch ? validParent(st, id, patch.parentId) : cat.parentId;
+    Object.assign(cat, normCategory({ ...cat, ...patch, parentId }, cat.order));
   });
 }
 
+// Solo se recolocan las categorías principales; las subcategorías se ordenan por prioridad y nombre.
 export function moveCategory(id, dir) {
   update((st) => {
-    const list = st.categories.slice().sort((a, b) => a.order - b.order);
+    const list = st.categories.filter((c) => !c.parentId).sort((a, b) => a.order - b.order);
     const i = list.findIndex((c) => c.id === id);
     const j = i + dir;
     if (i < 0 || j < 0 || j >= list.length) return;
@@ -755,12 +774,17 @@ export function moveCategory(id, dir) {
   });
 }
 
-// Lo que tuviera la categoría se conserva, sin categoría.
+// Al borrar una subcategoría, lo suyo pasa a la categoría principal. Al borrar una principal se van
+// también sus subcategorías y lo clasificado en ellas se conserva, sin categoría.
 export function removeCategory(id) {
   update((st) => {
-    st.categories = st.categories.filter((c) => c.id !== id);
+    const cat = st.categories.find((c) => c.id === id);
+    if (!cat) return;
+    const gone = new Set([id, ...st.categories.filter((c) => c.parentId === id).map((c) => c.id)]);
+    const to = cat.parentId || '';
+    st.categories = st.categories.filter((c) => !gone.has(c.id));
     for (const list of [st.tasks, st.projects, st.events, st.journal]) {
-      for (const item of list) if (item.categoryId === id) item.categoryId = '';
+      for (const item of list) if (gone.has(item.categoryId)) item.categoryId = to;
     }
   });
 }

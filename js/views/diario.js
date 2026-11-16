@@ -3,7 +3,7 @@
 
 import { esc, icon, multiline, plural, toast } from '../ui.js';
 import { getState, addJournal, toggleJournalStar } from '../store.js';
-import { journal, journalOf, categories, projectOf, eventOf, fold } from '../query.js';
+import { journal, journalOf, categories, categoryOf, categoryPath, inCategory, projectOf, eventOf, fold } from '../query.js';
 import { emptyState, categoryChip, tagChips } from '../components.js';
 import { openJournalForm } from '../forms.js';
 import { todayKey, toKey, monthOf, fmtLong, fmtMonth, fmtDayMonth, fmtTime, cap } from '../dates.js';
@@ -47,7 +47,7 @@ function entryCard(j, { full = false } = {}) {
 
 function applyFilter(list, f) {
   const words = fold(f.text).split(/\s+/).filter(Boolean);
-  return list.filter((j) => (!f.category || j.categoryId === f.category)
+  return list.filter((j) => inCategory(j.categoryId, f.category)
     && (!f.project || j.projectId === f.project)
     && (!f.month || monthOf(j.date) === f.month)
     && (!f.starred || j.starred)
@@ -64,7 +64,8 @@ function filtersBar(all, f) {
       </select>
     </label>` : '');
   const months = [...new Set(all.map((j) => monthOf(j.date)))];
-  const usedCats = new Set(all.map((j) => j.categoryId));
+  // Una categoría principal se ofrece si se usa ella o alguna de sus subcategorías.
+  const usedCats = new Set(all.flatMap((j) => [j.categoryId, categoryOf(j.categoryId)?.parentId]).filter(Boolean));
   const usedProjects = new Set(all.map((j) => j.projectId));
   const active = f.text || f.category || f.project || f.month || f.starred;
   return `
@@ -74,7 +75,7 @@ function filtersBar(all, f) {
         <input type="search" data-jsearch data-fk="journal-search" value="${esc(f.text)}" autocomplete="off" placeholder="Buscar en el diario" aria-label="Buscar en el diario">
       </label>
       ${months.length > 1 ? select('month', 'Cualquier fecha', months.map((m) => [m, fmtMonth(m)])) : ''}
-      ${select('category', 'Categoría', categories().filter((c) => usedCats.has(c.id)).map((c) => [c.id, c.name]))}
+      ${select('category', 'Categoría', categories().filter((c) => usedCats.has(c.id)).map((c) => [c.id, categoryPath(c.id)]))}
       ${select('project', 'Proyecto', getState().projects.filter((p) => usedProjects.has(p.id)).map((p) => [p.id, p.title]))}
       ${all.some((j) => j.starred) ? `<button class="btn btn-sm toggle ${f.starred ? 'on' : ''}" data-jstar aria-pressed="${f.starred}">${icon('star')}<span>Importantes</span></button>` : ''}
       ${active ? `<button class="btn btn-ghost btn-sm" data-jclear>${icon('x')}<span>Quitar filtros</span></button>` : ''}

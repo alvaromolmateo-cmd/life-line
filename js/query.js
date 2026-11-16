@@ -14,8 +14,25 @@ export const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999')
 // Los eventos de todo el día van antes que los que tienen hora.
 export const byTime = (a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || '') || a.title.localeCompare(b.title);
 
-export const categories = () => getState().categories.slice().sort((a, b) => a.order - b.order);
 export const categoryOf = (id) => (id ? getState().categories.find((c) => c.id === id) || null : null);
+
+// ---------- Categorías y subcategorías ----------
+// Las principales van en el orden que elige cada persona; sus subcategorías, por prioridad y nombre.
+export const topCategories = () => getState().categories.filter((c) => !c.parentId).sort((a, b) => a.order - b.order);
+export const subcategories = (id) => getState().categories
+  .filter((c) => c.parentId === id)
+  .sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority] || a.name.localeCompare(b.name, 'es'));
+// Todas, cada principal seguida de sus subcategorías.
+export const categories = () => topCategories().flatMap((c) => [c, ...subcategories(c.id)]);
+// «Estudios › Redes» para una subcategoría; el nombre sin más para una principal.
+export const categoryPath = (id) => {
+  const c = categoryOf(id);
+  if (!c) return '';
+  const parent = c.parentId ? categoryOf(c.parentId) : null;
+  return parent ? `${parent.name} › ${c.name}` : c.name;
+};
+// Filtrar por una categoría principal incluye sus subcategorías.
+export const inCategory = (itemCat, filterId) => !filterId || itemCat === filterId || categoryOf(itemCat)?.parentId === filterId;
 export const projectOf = (id) => (id ? getState().projects.find((p) => p.id === id) || null : null);
 export const taskOf = (id) => getState().tasks.find((t) => t.id === id) || null;
 export const eventOf = (id) => getState().events.find((e) => e.id === id) || null;
@@ -166,7 +183,7 @@ export function search(text, limit = 8) {
     const hay = fold(fields.flat().join(' \n '));
     return words.every((w) => hay.includes(w));
   };
-  const catName = (id) => categoryOf(id)?.name || '';
+  const catName = (id) => categoryPath(id);
   const projName = (id) => projectOf(id)?.title || '';
 
   const tasks = st.tasks

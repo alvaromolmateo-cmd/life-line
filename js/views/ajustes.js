@@ -3,13 +3,13 @@
 import { esc, icon, confirmDialog, toast, downloadText, plural } from '../ui.js';
 import {
   getState, setSetting, moveCategory, removeCategory, exportJSON, importJSON, resetAll,
-  safetyCopies, discardSafetyCopy, storageInfo, hasSaveError,
+  safetyCopies, discardSafetyCopy, storageInfo, hasSaveError, PRIORITY_LABEL,
 } from '../store.js';
-import { categories } from '../query.js';
+import { topCategories, subcategories } from '../query.js';
 import { openCategoryForm } from '../forms.js';
 import { todayKey, fmtMoment } from '../dates.js';
 
-export const APP_VERSION = '0.3.0'; // la misma que VERSION en sw.js
+export const APP_VERSION = '1.0.0'; // la misma que VERSION en sw.js
 
 const THEMES = [['auto', 'Como el dispositivo'], ['light', 'Claro'], ['dark', 'Oscuro']];
 
@@ -71,25 +71,39 @@ function sprintsSection(on) {
 }
 
 function categoriesSection() {
-  const list = categories();
+  const list = topCategories();
   const st = getState();
-  const uses = (id) => st.tasks.filter((t) => t.categoryId === id).length
-    + st.projects.filter((p) => p.categoryId === id).length
-    + st.events.filter((e) => e.categoryId === id).length;
+  const uses = (id) => [st.tasks, st.projects, st.events, st.journal].reduce((n, items) => n + items.filter((x) => x.categoryId === id).length, 0);
+  const usage = (n) => (n ? plural(n, 'elemento', 'elementos') : 'Sin usar');
+  const actions = (c) => `
+    <button class="icon-btn sm" data-cat-edit="${c.id}" aria-label="Editar ${esc(c.name)}">${icon('edit')}</button>
+    <button class="icon-btn sm" data-cat-remove="${c.id}" aria-label="Eliminar ${esc(c.name)}">${icon('trash')}</button>`;
   return section('Categorías', 'tag', `
     <div class="list">
-      ${list.map((c, i) => `
-        <div class="cat-row">
-          <i class="dot lg" style="--c:var(--c-${c.color})"></i>
-          <span class="cat-name">${esc(c.name)}<small>${uses(c.id) ? plural(uses(c.id), 'elemento', 'elementos') : 'Sin usar'}</small></span>
-          <button class="icon-btn sm" data-cat-move="${c.id}" data-dir="-1" aria-label="Subir"${i === 0 ? ' disabled' : ''}>${icon('arrow-up')}</button>
-          <button class="icon-btn sm" data-cat-move="${c.id}" data-dir="1" aria-label="Bajar"${i === list.length - 1 ? ' disabled' : ''}>${icon('arrow-down')}</button>
-          <button class="icon-btn sm" data-cat-edit="${c.id}" aria-label="Editar ${esc(c.name)}">${icon('edit')}</button>
-          <button class="icon-btn sm" data-cat-remove="${c.id}" aria-label="Eliminar ${esc(c.name)}">${icon('trash')}</button>
-        </div>`).join('')}
+      ${list.map((c, i) => {
+    const subs = subcategories(c.id);
+    return `
+        <div class="cat-group">
+          <div class="cat-row">
+            <i class="dot lg" style="--c:var(--c-${c.color})"></i>
+            <span class="cat-name">${esc(c.name)}<small>${esc([usage(uses(c.id)), subs.length ? plural(subs.length, 'subcategoría', 'subcategorías') : ''].filter(Boolean).join(' · '))}</small></span>
+            <button class="icon-btn sm" data-cat-move="${c.id}" data-dir="-1" aria-label="Subir"${i === 0 ? ' disabled' : ''}>${icon('arrow-up')}</button>
+            <button class="icon-btn sm" data-cat-move="${c.id}" data-dir="1" aria-label="Bajar"${i === list.length - 1 ? ' disabled' : ''}>${icon('arrow-down')}</button>
+            <button class="icon-btn sm" data-cat-sub="${c.id}" aria-label="Nueva subcategoría en ${esc(c.name)}" title="Nueva subcategoría">${icon('plus')}</button>
+            ${actions(c)}
+          </div>
+          ${subs.map((sc) => `
+            <div class="cat-row cat-sub">
+              <i class="dot" style="--c:var(--c-${sc.color})"></i>
+              <span class="cat-name">${esc(sc.name)}<small>${esc(`Prioridad ${PRIORITY_LABEL[sc.priority].toLowerCase()} · ${usage(uses(sc.id))}`)}</small></span>
+              ${sc.priority === 'high' ? `<span class="chip chip-high">${icon('flag')}Alta</span>` : ''}
+              ${actions(sc)}
+            </div>`).join('')}
+        </div>`;
+  }).join('')}
     </div>
     <button class="btn btn-sm" data-cat-new>${icon('plus')}<span>Nueva categoría</span></button>`,
-  'Sirven para clasificar tareas, proyectos y eventos, y para filtrar.');
+  'Sirven para clasificar tareas, proyectos, eventos y entradas del diario, y para filtrar. Cada categoría puede tener subcategorías, como las asignaturas dentro de Estudios, con su propio color y su prioridad.');
 }
 
 function dataSection() {
@@ -189,15 +203,20 @@ export function mount(root, ctx) {
   });
 
   root.querySelector('[data-cat-new]')?.addEventListener('click', () => openCategoryForm());
+  root.querySelectorAll('[data-cat-sub]').forEach((b) => b.addEventListener('click', () => openCategoryForm({ parentId: b.dataset.catSub })));
   root.querySelectorAll('[data-cat-edit]').forEach((b) => b.addEventListener('click', () => openCategoryForm({ id: b.dataset.catEdit })));
   root.querySelectorAll('[data-cat-move]').forEach((b) => b.addEventListener('click', () => moveCategory(b.dataset.catMove, Number(b.dataset.dir))));
   root.querySelectorAll('[data-cat-remove]').forEach((b) => b.addEventListener('click', async () => {
     const cat = getState().categories.find((c) => c.id === b.dataset.catRemove);
     if (!cat) return;
-    const ok = await confirmDialog({
-      title: 'Eliminar categoría',
-      message: `Se eliminará «${esc(cat.name)}». Lo que estuviera clasificado en ella se conserva, sin categoría.`,
-    });
+    const parent = cat.parentId ? getState().categories.find((c) => c.id === cat.parentId) : null;
+    const subs = subcategories(cat.id).length;
+    const message = parent
+      ? `Se eliminará «${esc(cat.name)}». Lo que estuviera clasificado en ella pasa a «${esc(parent.name)}».`
+      : subs
+        ? `Se eliminará «${esc(cat.name)}» con sus ${plural(subs, 'subcategoría', 'subcategorías')}. Lo que estuviera clasificado en ellas se conserva, sin categoría.`
+        : `Se eliminará «${esc(cat.name)}». Lo que estuviera clasificado en ella se conserva, sin categoría.`;
+    const ok = await confirmDialog({ title: parent ? 'Eliminar subcategoría' : 'Eliminar categoría', message });
     if (ok) removeCategory(cat.id);
   }));
 

@@ -5,7 +5,7 @@
 import { esc, icon, plural } from '../ui.js';
 import { getState, EVENT_TYPE_LABEL, ENTRY_KIND_LABEL } from '../store.js';
 import {
-  categories, projectOf, journalHeading, sprintsOn, sprintStats, sprintState, SPRINT_STATE_LABEL, isOpen,
+  topCategories, subcategories, inCategory, projectOf, journalHeading, sprintsOn, sprintStats, sprintState, SPRINT_STATE_LABEL, isOpen,
 } from '../query.js';
 import { emptyState, activityRow, statusBadge, progressBar } from '../components.js';
 import {
@@ -127,9 +127,18 @@ function summaryView(p, mode, data) {
   }
 
   // Tareas hechas por categoría, de más a menos.
-  const byCat = categories()
-    .map((c) => ({ name: c.name, color: c.color, n: done.filter((t) => t.categoryId === c.id).length }))
-    .concat([{ name: 'Sin categoría', color: 'slate', n: done.filter((t) => !t.categoryId).length }])
+  // Cada categoría principal cuenta también lo de sus subcategorías, que se desglosan debajo.
+  const byCat = topCategories()
+    .map((c) => ({
+      name: c.name,
+      color: c.color,
+      n: done.filter((t) => inCategory(t.categoryId, c.id)).length,
+      subs: subcategories(c.id)
+        .map((sc) => ({ name: sc.name, color: sc.color, n: done.filter((t) => t.categoryId === sc.id).length }))
+        .filter((sc) => sc.n)
+        .sort((a, b) => b.n - a.n),
+    }))
+    .concat([{ name: 'Sin categoría', color: 'slate', n: done.filter((t) => !t.categoryId).length, subs: [] }])
     .filter((c) => c.n)
     .sort((a, b) => b.n - a.n);
   const catMax = Math.max(1, ...byCat.map((c) => c.n));
@@ -212,7 +221,13 @@ function summaryView(p, mode, data) {
                   <span class="hbar-label"><i class="dot" style="--c:var(--c-${c.color})"></i>${esc(c.name)}</span>
                   <b>${c.n}</b>
                   <span class="hbar-track"><span style="width:${(c.n / catMax) * 100}%"></span></span>
-                </div>`).join('')}
+                </div>
+                ${c.subs.map((sc) => `
+                  <div class="hbar hbar-sub">
+                    <span class="hbar-label"><i class="dot" style="--c:var(--c-${sc.color})"></i>${esc(sc.name)}</span>
+                    <b>${sc.n}</b>
+                    <span class="hbar-track"><span style="width:${(sc.n / catMax) * 100}%;background:var(--c-${sc.color})"></span></span>
+                  </div>`).join('')}`).join('')}
             </div>
           </section>` : ''}
 

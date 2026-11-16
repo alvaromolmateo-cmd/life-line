@@ -6,9 +6,9 @@ Un espacio personal que conecta la planificación, la organización, el seguimie
 
 App en vivo: https://alvaromolmateo-cmd.github.io/life-line/
 
-## Qué incluye la versión 0.3
+## Qué incluye la versión 1.0
 
-Todos los apartados del planteamiento inicial. Cada uno responde a una pregunta y todos trabajan sobre la misma información.
+Todos los apartados del planteamiento inicial, más categorías con subcategorías. Cada apartado responde a una pregunta y todos trabajan sobre la misma información.
 
 | Apartado | Para qué sirve |
 | --- | --- |
@@ -19,13 +19,14 @@ Todos los apartados del planteamiento inicial. Cada uno responde a una pregunta 
 | **Sprints** | Planificación semanal opcional. Cada semana puede tener un sprint con su objetivo y una selección de tareas tomadas de la lista general o de los proyectos. Un tablero las reparte en pendientes, en curso y hechas, y al cerrar la semana se guarda una revisión de lo conseguido y una reflexión. El historial conserva todos los sprints. |
 | **Diario** | Entradas libres, sin formulario. Se escribe directamente en la página o desde cualquier día del calendario. Cada entrada puede llevar título, categoría, etiquetas, la marca de momento importante y un enlace a un proyecto o a un evento. Se consulta de la más reciente a la más antigua, con búsqueda y filtros por fecha, categoría y proyecto. |
 | **Registros** | Lo ocurrido por semana, mes o año. El resumen cuenta tareas hechas, eventos, entradas del diario, avances y sprints, con un gráfico de tareas hechas, el reparto por categoría y los proyectos con movimiento. La cronología lo ordena día a día y la actividad enseña el historial completo de cambios. Todo en cantidades, sin porcentajes. |
-| **Ajustes** | Nombre, tema claro u oscuro, cómo se organiza LifeLine, uso de los sprints, categorías configurables, copia y restauración de los datos e instalación. |
+| **Ajustes** | Nombre, tema claro u oscuro, cómo se organiza LifeLine, uso de los sprints, categorías y subcategorías, copia y restauración de los datos e instalación. |
 
 Y de forma transversal:
 
 - **Bandeja de entrada** – Se apunta cualquier cosa sin decidir dónde va; después se convierte en tarea, evento, proyecto, nota de un proyecto o entrada del diario.
 - **Buscador global** – `Ctrl K` o `/`. Encuentra tareas, proyectos, eventos, sprints, entradas del diario, notas y apuntes sin recordar dónde se guardaron.
 - **Historial real** – Cada alta, cada tarea completada y cada cambio de estado deja un apunte con su fecha.
+- **Categorías y subcategorías** – Cada categoría puede tener subcategorías, como las asignaturas dentro de Estudios, cada una con su color y su prioridad. La prioridad ordena las subcategorías y se propone a las tareas nuevas que la usen. Filtrar por una categoría incluye sus subcategorías, y los registros las desglosan.
 - **PWA** – Se instala en el móvil y en el ordenador y funciona sin conexión.
 
 ## Cómo encajan los sprints
@@ -53,8 +54,9 @@ El desarrollo es progresivo: cada etapa se apoya en la anterior y ningún módul
 1. **Base, Calendario, Tareas y Proyectos** – Hecho en la versión 0.1.
 2. **Sprints** – Hecho en la versión 0.2. Todo con nombres en español: lista general, planificar, tareas de la semana, revisión y reflexión.
 3. **Diario y Registros** – Hecho en la versión 0.3, junto con el interruptor de los sprints.
-4. **Ahora** – Uso real y revisiones a partir de lo que se vaya viendo.
-5. **Más adelante** – Hábitos y rutinas, objetivos a largo plazo, recordatorios, adjuntos y sincronización entre dispositivos.
+4. **Subcategorías y versión 1.0** – Primera versión completa.
+5. **Ahora** – Uso real y revisiones a partir de lo que se vaya viendo.
+6. **Más adelante** – Hábitos y rutinas, objetivos a largo plazo, recordatorios, adjuntos y sincronización entre dispositivos.
 
 ## Arquitectura
 
@@ -83,7 +85,7 @@ Cada vista exporta `render(ctx)`, que devuelve HTML, y `mount(root, ctx)`, que c
 Cada cosa se guarda una sola vez y se relaciona por identificador. Una tarea puede pertenecer a un proyecto, tener categoría y aparecer en el calendario por su fecha límite sin que exista ninguna copia.
 
 ```
-categories   { id, name, color, order }
+categories   { id, name, color, order, parentId, priority }
 inbox        { id, text, createdAt }
 tasks        { id, title, notes, status, priority, due, categoryId, projectId, tags[], createdAt, completedAt }
 projects     { id, title, description, goal, status, priority, start, end, categoryId, tags[],
@@ -100,6 +102,7 @@ settings     { name, theme, calendarMode, useSprints, dashboard[{ id, on }] }
 - `tasks.status` – `pending`, `doing` o `done`. `events.type` – `event`, `appointment`, `exam`, `delivery` o `date`. `entries.kind` – `note`, `idea` o `progress`.
 - Un sprint es una semana de lunes a domingo y `sprints.start` es su lunes; hay como mucho uno por semana. Guarda solo los identificadores de sus tareas, así que una tarea sigue siendo única aunque esté en un proyecto, en el calendario y en la semana. Su estado sale de las fechas: planificado, en curso, por revisar o cerrado.
 - Al cerrar un sprint, `result` guarda cómo quedó cada tarea con el título que tenía, para que el historial se siga entendiendo aunque la tarea cambie o se borre. Las tareas abiertas pueden pasar al sprint de la semana siguiente.
+- Una categoría con `parentId` es una subcategoría de esa categoría principal. Hay un solo nivel. Al borrar una subcategoría, lo clasificado en ella pasa a su categoría principal; al borrar una principal se borran también sus subcategorías y lo clasificado queda sin categoría.
 - Una entrada del diario solo necesita su día y su texto. Si se borra el proyecto, el evento o la categoría a los que apuntaba, la entrada se conserva sin ese enlace. En el historial figura por su título o por su día, nunca por lo escrito.
 - Los registros no guardan nada propio: se calculan en el momento a partir de las tareas, los eventos, el diario, los proyectos y los sprints.
 

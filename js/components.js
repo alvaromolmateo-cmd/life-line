@@ -11,7 +11,10 @@ export const chip = (text, { color = '', ic = '', cls = '' } = {}) => `
 
 export const categoryChip = (id) => {
   const c = categoryOf(id);
-  return c ? `<span class="chip chip-cat" style="--c:var(--c-${c.color})"><i class="dot"></i>${esc(c.name)}</span>` : '';
+  if (!c) return '';
+  // Una subcategoría enseña su nombre y su color; la ruta completa queda en el texto de ayuda.
+  const parent = c.parentId ? categoryOf(c.parentId) : null;
+  return `<span class="chip chip-cat" style="--c:var(--c-${c.color})"${parent ? ` title="${esc(`${parent.name} › ${c.name}`)}"` : ''}><i class="dot"></i>${esc(c.name)}</span>`;
 };
 
 export const projectChip = (id) => {

@@ -9,7 +9,7 @@ import {
   TASK_STATUSES, TASK_STATUS_LABEL, PRIORITIES, PRIORITY_LABEL, PROJECT_STATUSES, PROJECT_STATUS_LABEL,
   EVENT_TYPES, EVENT_TYPE_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL, COLORS, COLOR_LABEL,
 } from './store.js';
-import { categories, taskOf, eventOf, projectOf, categoryOf, journalOf, upcomingSprints, taskSprint, thisWeek, sprintsOn, byTime } from './query.js';
+import { categories, categoryPath, topCategories, taskOf, eventOf, projectOf, categoryOf, journalOf, upcomingSprints, taskSprint, thisWeek, sprintsOn, byTime } from './query.js';
 import { todayKey, addDays, fmtWeekRange, fmtShort, cap } from './dates.js';
 
 // ---------- Campos ----------
@@ -19,7 +19,7 @@ const options = (pairs, value) => pairs.map(([v, text]) => `<option value="${esc
 
 const selectField = (label, name, pairs, value) => field(label, `<select name="${name}">${options(pairs, value)}</select>`);
 
-const categoryField = (value) => selectField('Categoría', 'categoryId', [['', 'Sin categoría'], ...categories().map((c) => [c.id, c.name])], value);
+const categoryField = (value) => selectField('Categoría', 'categoryId', [['', 'Sin categoría'], ...categories().map((c) => [c.id, categoryPath(c.id)])], value);
 
 // Proyectos en marcha, más el que ya tuviera el elemento aunque esté terminado.
 const projectField = (value) => {
@@ -37,7 +37,7 @@ const sprintField = (value) => {
 
 const readForm = (form) => Object.fromEntries(new FormData(form).entries());
 
-export function formModal({ title, sub = '', body, saveText = 'Guardar', onSave, onDelete, size = '' }) {
+export function formModal({ title, sub = '', body, saveText = 'Guardar', onSave, onDelete, onMount, size = '' }) {
   openModal({
     size,
     render: () => `
@@ -65,9 +65,16 @@ export function formModal({ title, sub = '', body, saveText = 'Guardar', onSave,
       });
       form.addEventListener('input', (e) => e.target.classList?.remove('invalid'));
       panel.querySelector('[data-delete]')?.addEventListener('click', onDelete);
+      onMount?.(form);
     },
   });
 }
+
+// La prioridad de una subcategoría se propone a sus tareas, mientras no se haya tocado a mano.
+const subPriority = (catId) => {
+  const c = categoryOf(catId);
+  return c?.parentId ? c.priority : '';
+};
 
 // ---------- Tarea ----------
 // `defaults` rellena una tarea nueva; `onSaved` avisa cuando se ha guardado.
@@ -75,6 +82,7 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
   const task = id ? taskOf(id) : null;
   if (id && !task) return;
   const v = { title: '', notes: '', status: 'pending', priority: 'normal', due: '', categoryId: '', projectId: '', tags: [], ...defaults, ...(task || {}) };
+  if (!task && !defaults.priority && subPriority(v.categoryId)) v.priority = subPriority(v.categoryId);
   const sprintBefore = task ? (taskSprint(task.id)?.id || '') : (defaults.sprintId || '');
   formModal({
     title: task ? 'Tarea' : 'Nueva tarea',
@@ -100,6 +108,14 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
       if (sprintId !== undefined && sprintId !== (task ? sprintBefore : '')) setTaskSprint(taskId, sprintId);
       onSaved?.();
       if (!task) toast('Tarea creada');
+    },
+    onMount: (form) => {
+      let touched = !!task;
+      form.elements.priority.addEventListener('change', () => { touched = true; });
+      form.elements.categoryId.addEventListener('change', () => {
+        const p = subPriority(form.elements.categoryId.value);
+        if (!touched && p) form.elements.priority.value = p;
+      });
     },
     onDelete: task ? async () => {
       const ok = await confirmDialog({ title: 'Eliminar tarea', message: `Se eliminará «${esc(task.title)}».` });
@@ -243,14 +259,26 @@ export function openJournalForm({ id = null, defaults = {}, onSaved } = {}) {
 }
 
 // ---------- Categoría ----------
-export function openCategoryForm({ id = null } = {}) {
+// Con `parentId` crea una subcategoría dentro de esa categoría.
+export function openCategoryForm({ id = null, parentId = '' } = {}) {
   const cat = id ? categoryOf(id) : null;
-  const v = { name: '', color: 'indigo', ...(cat || {}) };
+  const parent0 = categoryOf(parentId);
+  const v = { name: '', color: parent0?.color || 'indigo', priority: 'normal', parentId, ...(cat || {}) };
+  // Una categoría con subcategorías no puede pasar a ser subcategoría de otra.
+  const hasChildren = cat && getState().categories.some((c) => c.parentId === cat.id);
+  const parents = topCategories().filter((c) => c.id !== id);
+  const isSub = !!v.parentId;
   formModal({
     size: 'sm',
-    title: cat ? 'Categoría' : 'Nueva categoría',
+    title: cat ? (isSub ? 'Subcategoría' : 'Categoría') : (isSub ? 'Nueva subcategoría' : 'Nueva categoría'),
+    sub: !cat && parent0 ? esc(`Dentro de ${parent0.name}`) : '',
     body: `
-      ${field('Nombre', `<input name="name" value="${esc(v.name)}" required autofocus autocomplete="off">`)}
+      ${field('Nombre', `<input name="name" value="${esc(v.name)}" required autofocus autocomplete="off" placeholder="${isSub ? 'Por ejemplo, una asignatura' : ''}">`)}
+      ${hasChildren || !parents.length ? '' : selectField('Dentro de', 'parentId', [['', 'Ninguna – Es una categoría principal'], ...parents.map((c) => [c.id, c.name])], v.parentId)}
+      <div data-prio${isSub ? '' : ' hidden'}>
+        ${selectField('Prioridad', 'priority', PRIORITIES.slice().reverse().map((p) => [p, PRIORITY_LABEL[p]]), v.priority)}
+        <p class="field-hint prio-hint">Ordena las subcategorías y se propone a las tareas nuevas que la usen.</p>
+      </div>
       <div class="field">
         <span class="field-label">Color</span>
         <div class="swatches">
@@ -262,8 +290,14 @@ export function openCategoryForm({ id = null } = {}) {
         </div>
       </div>`,
     onSave: (data) => {
-      if (cat) updateCategory(cat.id, data);
-      else addCategory(data);
+      const payload = { ...data, parentId: data.parentId ?? v.parentId };
+      if (cat) updateCategory(cat.id, payload);
+      else addCategory(payload);
+    },
+    onMount: (form) => {
+      form.elements.parentId?.addEventListener('change', () => {
+        form.querySelector('[data-prio]').hidden = !form.elements.parentId.value;
+      });
     },
   });
 }
