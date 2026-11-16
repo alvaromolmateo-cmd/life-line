@@ -1,7 +1,7 @@
 // Service worker: precachea la app y sirve con «red primero, caché si falla», para que funcione sin conexión
 // y a la vez reciba las actualizaciones en cuanto haya red.
 
-const VERSION = 'v0.2.0'; // la misma que APP_VERSION en js/views/ajustes.js
+const VERSION = 'v0.3.0'; // la misma que APP_VERSION en js/views/ajustes.js
 const CACHE = `lifeline-${VERSION}`;
 const ASSETS = [
   './',
@@ -18,6 +18,8 @@ const ASSETS = [
   './js/ui.js',
   './js/views/ajustes.js',
   './js/views/calendario.js',
+  './js/views/diario.js',
+  './js/views/registros.js',
   './js/views/inicio.js',
   './js/views/proyectos.js',
   './js/views/sprints.js',

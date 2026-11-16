@@ -27,7 +27,9 @@ export function openModal(opts) {
   const first = panel.querySelector('[autofocus]');
   if (first) {
     first.focus();
-    if (first.select && first.value) first.select();
+    // Un título se selecciona entero para sustituirlo; un texto largo se deja como está, con el cursor al final.
+    if (first.tagName === 'INPUT' && first.value) first.select();
+    else if (first.tagName === 'TEXTAREA') first.setSelectionRange(first.value.length, first.value.length);
   }
 }
 

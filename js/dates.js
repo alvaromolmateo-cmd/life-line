@@ -32,6 +32,12 @@ export const addMonths = (ym, n) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 };
 
+// Último día del mes.
+export const monthEnd = (ym) => {
+  const [y, m] = ym.split('-').map(Number);
+  return toKey(new Date(y, m, 0));
+};
+
 // Semanas completas, de lunes a domingo, que cubren el mes.
 export const monthWeeks = (ym) => {
   const weeks = [];
@@ -99,6 +105,16 @@ export const fmtTimeRange = (start, end) => {
   if (!start) return 'Todo el día';
   return end ? `${start} – ${end}` : start;
 };
+
+// «14:32»
+export const fmtTime = (iso) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : fTime.format(d);
+};
+
+// «ene», «feb»…
+const fMonthShort = F({ month: 'short' });
+export const fmtMonthShort = (ym) => fMonthShort.format(parseKey(`${ym}-01`)).replace('.', '');
 
 // Momento de un registro del historial: «Hoy, 14:32», «Ayer, 09:10», «12 nov, 18:00».
 export const fmtMoment = (iso) => {

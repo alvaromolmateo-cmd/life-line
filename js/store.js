@@ -5,10 +5,10 @@
 // y a su categoría, y el calendario la muestra por su fecha límite. No hay copias de la misma información.
 
 import { uid } from './ui.js';
-import { isKey, isTime, weekStart, todayKey, addDays, fmtWeekRange } from './dates.js';
+import { isKey, isTime, weekStart, todayKey, addDays, fmtWeekRange, fmtLong } from './dates.js';
 
 const STORAGE_KEY = 'lifeline:data';
-export const DATA_VERSION = 2;
+export const DATA_VERSION = 3;
 
 export const TASK_STATUSES = ['pending', 'doing', 'done'];
 export const TASK_STATUS_LABEL = { pending: 'Pendiente', doing: 'En curso', done: 'Hecha' };
@@ -32,7 +32,7 @@ export const COLOR_LABEL = {
 };
 
 // Bloques de la pantalla de inicio. El orden y cuáles se ven lo decide cada persona.
-export const WIDGETS = ['hoy', 'calendario', 'sprint', 'tareas', 'eventos', 'proyectos', 'bandeja', 'actividad'];
+export const WIDGETS = ['hoy', 'calendario', 'sprint', 'tareas', 'eventos', 'proyectos', 'diario', 'bandeja', 'actividad'];
 export const WIDGET_LABEL = {
   hoy: 'Tu día',
   calendario: 'Calendario',
@@ -40,6 +40,7 @@ export const WIDGET_LABEL = {
   tareas: 'Tareas pendientes',
   eventos: 'Próximos eventos',
   proyectos: 'Proyectos activos',
+  diario: 'Diario',
   bandeja: 'Bandeja de entrada',
   actividad: 'Actividad reciente',
 };
@@ -57,6 +58,8 @@ export const DEFAULT_SETTINGS = {
   name: '',
   theme: 'auto',
   calendarMode: 'month',
+  // Los sprints son opcionales: con esto apagado desaparecen del menú, de Inicio y de las fichas.
+  useSprints: true,
 };
 
 const defaultDashboard = () => WIDGETS.map((id) => ({ id, on: true }));
@@ -71,6 +74,7 @@ export function defaultState() {
     projects: [],
     events: [],
     sprints: [],
+    journal: [],
     dayNotes: {},
     activity: [],
     settings: { ...DEFAULT_SETTINGS, dashboard: defaultDashboard() },
@@ -93,6 +97,7 @@ const cleanTags = (v) => {
 const refsOf = (st) => ({
   cats: new Set(st.categories.map((c) => c.id)),
   projects: new Set(st.projects.map((p) => p.id)),
+  events: new Set((Array.isArray(st.events) ? st.events : []).filter(Boolean).map((e) => e.id)),
 });
 
 function normCategory(c, i) {
@@ -201,6 +206,24 @@ function normSprint(s) {
   };
 }
 
+// Entrada del diario: texto libre con su día. Título, categoría, etiquetas y enlaces son opcionales.
+function normJournal(j, refs) {
+  return {
+    ...j,
+    id: str(j.id) || uid(),
+    date: cleanKey(j.date),
+    title: str(j.title).trim(),
+    text: str(j.text),
+    starred: j.starred === true,
+    categoryId: refs.cats.has(j.categoryId) ? j.categoryId : '',
+    projectId: refs.projects.has(j.projectId) ? j.projectId : '',
+    eventId: refs.events.has(j.eventId) ? j.eventId : '',
+    tags: cleanTags(j.tags),
+    createdAt: cleanIso(j.createdAt) || now(),
+    updatedAt: cleanIso(j.updatedAt),
+  };
+}
+
 function normDashboard(list) {
   const seen = new Set();
   const out = [];
@@ -231,6 +254,8 @@ function migrate(data) {
   out.tasks = (Array.isArray(data.tasks) ? data.tasks : []).filter(Boolean).map((t) => normTask(t, refs));
   out.events = (Array.isArray(data.events) ? data.events : []).filter(Boolean).map((e) => normEvent(e, refs)).filter((e) => e.date);
 
+  refs = refsOf(out);
+  out.journal = (Array.isArray(data.journal) ? data.journal : []).filter(Boolean).map((j) => normJournal(j, refs)).filter((j) => j.date && (j.text.trim() || j.title));
   out.sprints = (Array.isArray(data.sprints) ? data.sprints : []).filter(Boolean).map(normSprint).filter((s) => s.start);
 
   const notes = data.dayNotes && typeof data.dayNotes === 'object' ? data.dayNotes : {};
@@ -248,6 +273,14 @@ function migrate(data) {
     list.splice(at + 1, 0, { id: 'sprint', on: true });
     out.settings.dashboard = list;
   }
+  // Versión 3 – Llega el diario. Su bloque de Inicio se coloca antes de la bandeja.
+  if (from < 3 && Array.isArray(out.settings.dashboard) && !out.settings.dashboard.some((w) => w?.id === 'diario')) {
+    const list = out.settings.dashboard.slice();
+    const at = list.findIndex((w) => w?.id === 'bandeja');
+    list.splice(at < 0 ? list.length : at, 0, { id: 'diario', on: true });
+    out.settings.dashboard = list;
+  }
+  out.settings.useSprints = out.settings.useSprints !== false;
   out.settings.dashboard = normDashboard(out.settings.dashboard);
   delete out.exportedAt;
   return out;
@@ -466,6 +499,7 @@ export function removeProject(id) {
     st.projects = st.projects.filter((p) => p.id !== id);
     for (const t of st.tasks) if (t.projectId === id) t.projectId = '';
     for (const e of st.events) if (e.projectId === id) e.projectId = '';
+    for (const j of st.journal) if (j.projectId === id) j.projectId = '';
     log(st, 'deleted', 'project', project);
   });
 }
@@ -515,6 +549,7 @@ export function removeEvent(id) {
     const event = st.events.find((e) => e.id === id);
     if (!event) return;
     st.events = st.events.filter((e) => e.id !== id);
+    for (const j of st.journal) if (j.eventId === id) j.eventId = '';
     log(st, 'deleted', 'event', event);
   });
 }
@@ -640,6 +675,47 @@ export function removeSprint(id) {
   });
 }
 
+// ---------- Diario ----------
+// En el historial la entrada figura por su título o por su día, nunca por lo escrito.
+const journalTitle = (j) => j.title || `Entrada del ${fmtLong(j.date)}`;
+
+export function addJournal(data) {
+  let id = null;
+  update((st) => {
+    const entry = normJournal({ ...data, id: uid(), createdAt: now(), updatedAt: '' }, refsOf(st));
+    if (!entry.date || !(entry.text.trim() || entry.title)) return;
+    id = entry.id;
+    st.journal.push(entry);
+    log(st, 'created', 'journal', { id, title: journalTitle(entry), projectId: entry.projectId });
+  });
+  return id;
+}
+
+export function updateJournal(id, patch) {
+  update((st) => {
+    const entry = st.journal.find((j) => j.id === id);
+    if (!entry) return;
+    const next = normJournal({ ...entry, ...patch, updatedAt: now() }, refsOf(st));
+    if (next.date && (next.text.trim() || next.title)) Object.assign(entry, next);
+  });
+}
+
+export function toggleJournalStar(id) {
+  update((st) => {
+    const entry = st.journal.find((j) => j.id === id);
+    if (entry) entry.starred = !entry.starred;
+  });
+}
+
+export function removeJournal(id) {
+  update((st) => {
+    const entry = st.journal.find((j) => j.id === id);
+    if (!entry) return;
+    st.journal = st.journal.filter((j) => j.id !== id);
+    log(st, 'deleted', 'journal', { id, title: journalTitle(entry), projectId: entry.projectId });
+  });
+}
+
 // ---------- Anotaciones de día ----------
 export function setDayNote(key, text, opts) {
   if (!isKey(key)) return;
@@ -683,7 +759,7 @@ export function moveCategory(id, dir) {
 export function removeCategory(id) {
   update((st) => {
     st.categories = st.categories.filter((c) => c.id !== id);
-    for (const list of [st.tasks, st.projects, st.events]) {
+    for (const list of [st.tasks, st.projects, st.events, st.journal]) {
       for (const item of list) if (item.categoryId === id) item.categoryId = '';
     }
   });
@@ -701,13 +777,16 @@ export function toggleWidget(id) {
   });
 }
 
-export function moveWidget(id, dir) {
+// `skip` son bloques que no se están mostrando en la lista: el movimiento los salta.
+export function moveWidget(id, dir, skip = []) {
   update((st) => {
     const list = st.settings.dashboard;
     const i = list.findIndex((w) => w.id === id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= list.length) return;
-    [list[i], list[j]] = [list[j], list[i]];
+    let j = i + dir;
+    while (list[j] && skip.includes(list[j].id)) j += dir;
+    if (i < 0 || !list[j]) return;
+    const [w] = list.splice(i, 1);
+    list.splice(j, 0, w);
   });
 }
 

@@ -3,7 +3,7 @@
 
 import { esc, icon } from './ui.js';
 import { EVENT_TYPE_LABEL, EVENT_TYPE_COLOR, PRIORITY_LABEL, PROJECT_STATUS_LABEL } from './store.js';
-import { categoryOf, projectOf, isOpen, isOverdue, activityLabel, activityIcon, taskSprint, thisWeek } from './query.js';
+import { categoryOf, projectOf, isOpen, isOverdue, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
 import { fmtRelative, fmtTimeRange, fmtDayMonth, fmtWeekday, fmtMoment, todayKey, cap } from './dates.js';
 
 export const chip = (text, { color = '', ic = '', cls = '' } = {}) => `
@@ -37,7 +37,7 @@ export const statusBadge = (status) => `<span class="badge badge-${status}">${es
 
 // Marca las tareas elegidas para el sprint de esta semana o de una de las siguientes.
 export const sprintChip = (t) => {
-  const s = taskSprint(t.id);
+  const s = sprintsOn() ? taskSprint(t.id) : null;
   if (!s) return '';
   return chip(s.start === thisWeek() ? 'Sprint' : `Sprint del ${fmtDayMonth(s.start)}`, { ic: 'sprint', cls: 'chip-sprint' });
 };

@@ -6,7 +6,7 @@ import {
   getState, addTask, updateProject, addProjectEntry, removeProjectEntry,
   PROJECT_STATUSES, PROJECT_STATUS_LABEL, PRIORITY_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL,
 } from '../store.js';
-import { projectOf, projectStats, projectTasks, projectEvents, projectActivity, byDue, isOpen } from '../query.js';
+import { projectOf, projectStats, projectTasks, projectEvents, projectActivity, projectJournal, journalHeading, byDue, isOpen } from '../query.js';
 import { taskRow, eventRow, emptyState, progressBar, categoryChip, tagChips, statusBadge, priorityChip, activityRow } from '../components.js';
 import { fmtRelative, fmtShort, fmtMoment, todayKey, cap } from '../dates.js';
 
@@ -75,6 +75,7 @@ function detailView(p, ctx) {
   const past = events.filter((e) => e.date < todayKey()).reverse();
   const entries = p.entries.slice().sort((a, b) => b.at.localeCompare(a.at));
   const activity = projectActivity(p.id);
+  const diary = projectJournal(p.id);
   const kind = ctx.entryKind;
   const showDone = ctx.showDone;
 
@@ -167,6 +168,23 @@ function detailView(p, ctx) {
           </header>
           ${upcoming.length ? `<div class="list">${upcoming.map((e) => eventRow(e, { date: true, project: false })).join('')}</div>` : '<p class="day-empty">Exámenes, entregas o citas ligadas a este proyecto.</p>'}
           ${past.length ? `<p class="group-title">Pasados</p><div class="list faded">${past.slice(0, 5).map((e) => eventRow(e, { date: true, project: false })).join('')}</div>` : ''}
+        </section>
+
+        <section class="card">
+          <header class="card-head">
+            <h2 class="card-title">${icon('book')}<span>Diario</span></h2>
+            <button class="btn btn-sm" data-act="new-journal" data-project="${p.id}">${icon('plus')}<span>Entrada</span></button>
+          </header>
+          ${diary.length ? `
+            <div class="list">
+              ${diary.slice(0, 6).map((j) => `
+                <a class="act act-link" href="#/diario/${j.id}">
+                  <span class="act-icon">${icon(j.starred ? 'star' : 'book')}</span>
+                  <span class="act-body"><span class="act-title">${esc(journalHeading(j))}</span><small>${esc(cap(fmtShort(j.date)))}</small></span>
+                </a>`).join('')}
+            </div>
+            ${diary.length > 6 ? `<p class="muted small">Y ${diary.length - 6} entradas anteriores.</p>` : ''}`
+    : '<p class="day-empty">Lo que escribas en el diario sobre este proyecto.</p>'}
         </section>
 
         <section class="card">

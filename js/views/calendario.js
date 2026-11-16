@@ -3,7 +3,7 @@
 
 import { esc, icon } from '../ui.js';
 import { getState, setDayNote, setSetting, EVENT_TYPE_COLOR, EVENT_TYPE_LABEL } from '../store.js';
-import { dayIndex, eventsOn, tasksOn, isOpen } from '../query.js';
+import { dayIndex, eventsOn, tasksOn, isOpen, journalOn, journalHeading } from '../query.js';
 import { taskRow, eventRow } from '../components.js';
 import {
   todayKey, addDays, addMonths, monthOf, monthWeeks, weekDays, isoWeek, diffDays,
@@ -97,6 +97,7 @@ function dayPanel(key) {
   const events = eventsOn(key);
   const tasks = tasksOn(key);
   const note = getState().dayNotes[key] || '';
+  const entries = journalOn(key);
   const diff = diffDays(key, todayKey());
   const rel = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : diff === -1 ? 'Ayer' : '';
   return `
@@ -111,6 +112,16 @@ function dayPanel(key) {
       ${events.length ? `<p class="group-title">Eventos</p><div class="list">${events.map((e) => eventRow(e)).join('')}</div>` : ''}
       ${tasks.length ? `<p class="group-title">Tareas con fecha este día</p><div class="list">${tasks.map((t) => taskRow(t, { due: false })).join('')}</div>` : ''}
       ${!events.length && !tasks.length ? '<p class="day-empty">Día libre de eventos y tareas.</p>' : ''}
+      ${entries.length ? `
+        <p class="group-title">Diario</p>
+        <div class="list">
+          ${entries.map((j) => `
+            <a class="act act-link" href="#/diario/${j.id}">
+              <span class="act-icon">${icon(j.starred ? 'star' : 'book')}</span>
+              <span class="act-body"><span class="act-title">${esc(journalHeading(j))}</span></span>
+            </a>`).join('')}
+        </div>` : ''}
+      <button class="btn btn-sm btn-ghost day-journal" data-act="new-journal" data-date="${key}">${icon('book')}<span>Escribir en el diario</span></button>
       <label class="field day-note">
         <span class="field-label">Anotación del día</span>
         <textarea rows="3" data-day-note="${key}" data-fk="day-note-${key}" placeholder="Algo que quieras recordar de este día">${esc(note)}</textarea>

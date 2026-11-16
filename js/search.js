@@ -10,6 +10,7 @@ function openResult(item, goToDay) {
   if (item.kind === 'task') openTaskForm({ id: item.id });
   else if (item.kind === 'event') openEventForm({ id: item.id });
   else if (item.kind === 'project' || item.kind === 'entry') location.hash = `#/proyectos/${item.id}`;
+  else if (item.kind === 'journal') location.hash = `#/diario/${item.id}`;
   else if (item.kind === 'sprint') location.hash = `#/sprints/${item.id}`;
   else if (item.kind === 'day') goToDay(item.id);
   else if (item.kind === 'inbox') openOrganize(item.id);
@@ -22,7 +23,7 @@ export function openSearch({ goToDay }) {
   const resultsHtml = (text) => {
     const groups = search(text);
     flat = groups.flatMap((g) => g.items);
-    if (!text.trim()) return '<p class="search-hint">Escribe para buscar en tus tareas, proyectos, eventos, sprints, notas y apuntes.</p>';
+    if (!text.trim()) return '<p class="search-hint">Escribe para buscar en tus tareas, proyectos, eventos, diario, notas y apuntes.</p>';
     if (!flat.length) return `<p class="search-hint">Nada coincide con «${esc(text.trim())}».</p>`;
     let i = 0;
     return groups.map((g) => `

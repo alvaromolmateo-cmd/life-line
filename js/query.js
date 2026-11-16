@@ -66,7 +66,18 @@ export const projectEvents = (id) => getState().events.filter((e) => e.projectId
 export const projectActivity = (id) => getState().activity.filter((a) => a.projectId === id).slice().reverse();
 export const recentActivity = (limit = 8) => getState().activity.slice(-limit).reverse();
 
+// ---------- Diario ----------
+// De la más reciente a la más antigua; dentro del mismo día, la última escrita primero.
+export const journal = () => getState().journal.slice().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+export const journalOf = (id) => getState().journal.find((j) => j.id === id) || null;
+export const journalOn = (key) => journal().filter((j) => j.date === key);
+export const projectJournal = (id) => journal().filter((j) => j.projectId === id);
+// Título de una entrada: el suyo o su primera línea.
+export const journalHeading = (j) => j.title || j.text.trim().split('\n')[0].slice(0, 90);
+
 // ---------- Sprints ----------
+// Son opcionales: con el ajuste apagado no aparecen en el menú, en Inicio ni en las fichas.
+export const sprintsOn = () => getState().settings.useSprints !== false;
 export const thisWeek = () => weekStart(todayKey());
 export const sprints = () => getState().sprints.slice().sort((a, b) => b.start.localeCompare(a.start));
 export const sprintOf = (id) => getState().sprints.find((s) => s.id === id) || null;
@@ -121,6 +132,7 @@ export function activityLabel(a) {
     task: { created: 'Tarea creada', completed: 'Tarea completada', reopened: 'Tarea reabierta', deleted: 'Tarea eliminada' },
     project: { created: 'Proyecto creado', deleted: 'Proyecto eliminado' },
     event: { created: 'Evento añadido', deleted: 'Evento eliminado' },
+    journal: { created: 'Entrada del diario', deleted: 'Entrada del diario eliminada' },
     sprint: { created: 'Sprint empezado', closed: 'Sprint cerrado', reopened: 'Sprint reabierto', deleted: 'Sprint eliminado' },
   };
   if (a.kind === 'project' && a.action === 'status') {
@@ -137,6 +149,7 @@ export function activityIcon(a) {
   if (a.kind === 'project') return 'folder';
   if (a.kind === 'event') return 'calendar';
   if (a.kind === 'sprint') return 'sprint';
+  if (a.kind === 'journal') return 'book';
   return a.action === 'completed' ? 'check' : 'check-square';
 }
 
@@ -176,7 +189,14 @@ export function search(text, limit = 8) {
       sub: [EVENT_TYPE_LABEL[e.type], fmtRelative(e.date), e.start].filter(Boolean).join(' · '),
     }));
 
-  const sprintHits = st.sprints
+  const journalHits = journal()
+    .filter((j) => hit(j.title, j.text, j.tags, catName(j.categoryId), projName(j.projectId)))
+    .map((j) => ({
+      kind: 'journal', id: j.id, icon: 'book', title: journalHeading(j),
+      sub: [cap(fmtLong(j.date)), projName(j.projectId)].filter(Boolean).join(' · '),
+    }));
+
+  const sprintHits = (sprintsOn() ? st.sprints : [])
     .filter((s) => hit('sprint', s.goal, s.review, s.reflection, fmtWeekRange(s.start), s.result.map((r) => r.title)))
     .sort((a, b) => b.start.localeCompare(a.start))
     .map((s) => ({
@@ -207,6 +227,7 @@ export function search(text, limit = 8) {
     { label: 'Proyectos', items: projects },
     { label: 'Eventos', items: events },
     { label: 'Sprints', items: sprintHits },
+    { label: 'Diario', items: journalHits },
     { label: 'Notas de proyectos', items: entries },
     { label: 'Anotaciones del calendario', items: notes },
     { label: 'Bandeja de entrada', items: inbox },

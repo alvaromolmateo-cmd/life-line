@@ -4,7 +4,7 @@ import { esc, icon, openModal, modalHeader, plural, toast } from '../ui.js';
 import { getState, addInbox, toggleWidget, moveWidget, WIDGET_LABEL } from '../store.js';
 import {
   openTasks, eventsOn, tasksOn, upcomingEvents, dayIndex, projectStats, recentActivity,
-  isOpen, isOverdue, byDue, currentSprint, sprintTasks,
+  isOpen, isOverdue, byDue, currentSprint, sprintTasks, sprintsOn, journal,
 } from '../query.js';
 import { taskRow, eventRow, card, cardLink, emptyState, progressBar, categoryChip, activityRow } from '../components.js';
 import { todayKey, toKey, fmtLong, fmtMonth, fmtRelative, fmtWeekRange, monthWeeks, monthOf, addMonths, diffDays, cap } from '../dates.js';
@@ -88,7 +88,7 @@ function widgetCalendario(ctx) {
 
 // Solo aparece si esta semana tiene un sprint abierto.
 function widgetSprint() {
-  const s = currentSprint();
+  const s = sprintsOn() ? currentSprint() : null;
   if (!s) return '';
   const tasks = sprintTasks(s);
   const open = tasks.filter(isOpen).sort((a, b) => Number(b.status === 'doing') - Number(a.status === 'doing') || byDue(a, b));
@@ -166,6 +166,26 @@ function widgetProyectos() {
   });
 }
 
+// La última entrada del diario y un atajo para escribir la de hoy.
+function widgetDiario() {
+  const last = journal()[0];
+  const write = `<button class="btn btn-sm" data-act="new-journal">${icon('plus')}<span>Escribir</span></button>`;
+  return card({
+    title: 'Diario',
+    ic: 'book',
+    cls: 'w-diario',
+    action: last ? `<div class="card-actions">${write}</div>` : '',
+    body: last
+      ? `<a class="journal-mini" href="#/diario/${last.id}">
+           <span class="journal-mini-date">${esc(cap(fmtRelative(last.date)))}${last.starred ? icon('star') : ''}</span>
+           ${last.title ? `<span class="journal-mini-title">${esc(last.title)}</span>` : ''}
+           <span class="journal-mini-text">${esc(last.text.trim().slice(0, 400))}</span>
+         </a>
+         <a class="more-link" href="#/diario">Abrir el diario</a>`
+      : emptyState('book', 'Tu diario empieza aquí', 'Escribe lo que ha pasado hoy o lo que quieras recordar.', write),
+  });
+}
+
 function widgetBandeja() {
   const inbox = getState().inbox.slice().reverse();
   return card({
@@ -202,6 +222,7 @@ const RENDER = {
   tareas: widgetTareas,
   eventos: widgetEventos,
   proyectos: widgetProyectos,
+  diario: widgetDiario,
   bandeja: widgetBandeja,
   actividad: widgetActividad,
 };
@@ -212,7 +233,8 @@ function openCustomize() {
     size: 'sm',
     live: true,
     render: () => {
-      const list = getState().settings.dashboard;
+      // Con los sprints desactivados, su bloque no se ofrece.
+      const list = getState().settings.dashboard.filter((w) => w.id !== 'sprint' || sprintsOn());
       return `
         ${modalHeader('Personalizar inicio', 'Elige qué ves al abrir LifeLine y en qué orden.')}
         <div class="modal-body">
@@ -233,7 +255,7 @@ function openCustomize() {
     },
     mount: (panel) => {
       panel.querySelectorAll('[data-toggle]').forEach((el) => el.addEventListener('change', () => toggleWidget(el.dataset.toggle)));
-      panel.querySelectorAll('[data-move]').forEach((el) => el.addEventListener('click', () => moveWidget(el.dataset.move, Number(el.dataset.dir))));
+      panel.querySelectorAll('[data-move]').forEach((el) => el.addEventListener('click', () => moveWidget(el.dataset.move, Number(el.dataset.dir), sprintsOn() ? [] : ['sprint'])));
     },
   });
 }

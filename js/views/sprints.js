@@ -9,7 +9,7 @@ import {
 } from '../store.js';
 import {
   sprints, sprintOf, sprintForWeek, sprintState, sprintTasks, sprintItems, sprintStats,
-  SPRINT_STATE_LABEL, thisWeek, weekLabel, openTasks, taskOf, byDue, fold,
+  SPRINT_STATE_LABEL, thisWeek, weekLabel, openTasks, taskOf, byDue, fold, sprintsOn,
 } from '../query.js';
 import { taskRow, emptyState, progressBar, chip, dueChip, priorityChip } from '../components.js';
 import { formModal, field, openTaskForm } from '../forms.js';
@@ -355,13 +355,21 @@ export function render(ctx) {
     ? sprints().find((x) => sprintState(x) === 'review')
     : null;
 
-  return `
+  const head = `
     <header class="page-head">
       <div>
         <h1>Sprints</h1>
         <p class="sub">Elige en qué quieres avanzar cada semana.</p>
       </div>
-    </header>
+      <a class="btn btn-ghost head-icon" href="#/ajustes/sprints" aria-label="Cómo encajan los sprints en LifeLine">${icon('info')}<span>Cómo funcionan</span></a>
+    </header>`;
+  if (!sprintsOn()) {
+    return `${head}${emptyState('sprint', 'Sprints desactivados', 'Lo que hubieras planificado sigue guardado. Actívalos desde Ajustes para volver a verlo.',
+      `<a class="btn btn-primary" href="#/ajustes/sprints">${icon('settings')}<span>Abrir Ajustes</span></a>`)}`;
+  }
+
+  return `
+    ${head}
     <nav class="tabs" aria-label="Sprints">
       <a class="tab ${history ? '' : 'active'}" href="#/sprints"${history ? '' : ' aria-current="page"'}>Semana</a>
       <a class="tab ${history ? 'active' : ''}" href="#/sprints/historial"${history ? ' aria-current="page"' : ''}>Historial${total ? `<span class="count">${total}</span>` : ''}</a>
@@ -373,7 +381,7 @@ export function render(ctx) {
 }
 
 export function mount(root, ctx) {
-  if (ctx.param === 'historial') return;
+  if (ctx.param === 'historial' || !sprintsOn()) return;
   const week = weekOf(ctx.param);
   const s = sprintForWeek(week);
 

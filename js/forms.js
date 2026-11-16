@@ -5,12 +5,12 @@ import { esc, icon, openModal, closeModal, modalHeader, confirmDialog, openMenu,
 import {
   getState, addTask, updateTask, removeTask, addEvent, updateEvent, removeEvent,
   addProject, updateProject, removeProject, addProjectEntry, addInbox, removeInbox,
-  addCategory, updateCategory, setTaskSprint,
+  addCategory, updateCategory, setTaskSprint, addJournal, updateJournal, removeJournal,
   TASK_STATUSES, TASK_STATUS_LABEL, PRIORITIES, PRIORITY_LABEL, PROJECT_STATUSES, PROJECT_STATUS_LABEL,
   EVENT_TYPES, EVENT_TYPE_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL, COLORS, COLOR_LABEL,
 } from './store.js';
-import { categories, taskOf, eventOf, projectOf, categoryOf, upcomingSprints, taskSprint, thisWeek } from './query.js';
-import { todayKey, fmtWeekRange } from './dates.js';
+import { categories, taskOf, eventOf, projectOf, categoryOf, journalOf, upcomingSprints, taskSprint, thisWeek, sprintsOn, byTime } from './query.js';
+import { todayKey, addDays, fmtWeekRange, fmtShort, cap } from './dates.js';
 
 // ---------- Campos ----------
 export const field = (label, control, cls = '') => `<label class="field ${cls}"><span class="field-label">${label}</span>${control}</label>`;
@@ -29,7 +29,7 @@ const projectField = (value) => {
 
 // Solo aparece si hay algún sprint abierto, de esta semana o de las siguientes.
 const sprintField = (value) => {
-  const list = upcomingSprints();
+  const list = sprintsOn() ? upcomingSprints() : [];
   if (!list.length) return '';
   const name = (s) => (s.start === thisWeek() ? `Esta semana – ${fmtWeekRange(s.start)}` : `Semana ${fmtWeekRange(s.start)}`);
   return selectField('Sprint', 'sprintId', [['', 'Fuera del sprint'], ...list.map((s) => [s.id, name(s)])], value);
@@ -193,6 +193,55 @@ export function openProjectForm({ id = null, defaults = {}, onSaved } = {}) {
   });
 }
 
+// ---------- Entrada del diario ----------
+// Solo el texto es necesario. Lo demás sirve para encontrarla después o para enlazarla con un proyecto o un evento.
+export function openJournalForm({ id = null, defaults = {}, onSaved } = {}) {
+  const entry = id ? journalOf(id) : null;
+  if (id && !entry) return;
+  const v = { date: todayKey(), title: '', text: '', starred: false, categoryId: '', projectId: '', eventId: '', tags: [], ...defaults, ...(entry || {}) };
+  // Eventos cercanos al día de la entrada, más el que ya tuviera enlazado.
+  const events = getState().events
+    .filter((e) => e.id === v.eventId || (e.date >= addDays(v.date, -30) && e.date <= addDays(v.date, 14)))
+    .sort((a, b) => byTime(b, a));
+  formModal({
+    size: 'lg',
+    title: entry ? 'Entrada del diario' : 'Nueva entrada',
+    saveText: entry ? 'Guardar' : 'Guardar entrada',
+    body: `
+      ${field('Texto', `<textarea name="text" rows="9" required autofocus placeholder="Escribe con libertad lo que ha pasado, lo que piensas o lo que quieres recordar">${esc(v.text)}</textarea>`)}
+      <div class="row2">
+        ${field('Día', `<input type="date" name="date" value="${esc(v.date)}" required>`)}
+        ${field('Título', `<input name="title" value="${esc(v.title)}" autocomplete="off" placeholder="Si quieres ponerle uno">`)}
+      </div>
+      <label class="switch">
+        <input type="checkbox" name="starred"${v.starred ? ' checked' : ''}>
+        <span class="switch-track" aria-hidden="true"></span>
+        <span>Momento importante</span>
+      </label>
+      <div class="row2">
+        ${categoryField(v.categoryId)}
+        ${projectField(v.projectId)}
+      </div>
+      ${events.length ? selectField('Evento relacionado', 'eventId', [['', 'Sin evento'], ...events.map((e) => [e.id, `${e.title} – ${cap(fmtShort(e.date))}`])], v.eventId) : ''}
+      ${field('Etiquetas', `<input name="tags" value="${esc(v.tags.join(', '))}" autocomplete="off" placeholder="Separadas por comas">`)}`,
+    onSave: (data) => {
+      const payload = { eventId: '', ...data, starred: data.starred === 'on' };
+      if (entry) updateJournal(entry.id, payload);
+      else addJournal(payload);
+      onSaved?.();
+      if (!entry) toast('Entrada guardada en el diario');
+    },
+    onDelete: entry ? async () => {
+      const ok = await confirmDialog({ title: 'Eliminar entrada', message: 'Se eliminará esta entrada del diario.' });
+      if (ok) {
+        removeJournal(entry.id);
+        toast('Entrada eliminada');
+        if (location.hash.startsWith(`#/diario/${entry.id}`)) location.hash = '#/diario';
+      } else openJournalForm({ id });
+    } : null,
+  });
+}
+
 // ---------- Categoría ----------
 export function openCategoryForm({ id = null } = {}) {
   const cat = id ? categoryOf(id) : null;
@@ -246,6 +295,7 @@ export function openOrganize(id) {
     { key: 'event', ic: 'calendar', color: 'indigo', label: 'Evento', hint: 'Algo que ocurre un día concreto' },
     { key: 'project', ic: 'folder', color: 'violet', label: 'Proyecto', hint: 'Algo más amplio, con varias tareas' },
     ...(projects.length ? [{ key: 'entry', ic: 'note', color: 'teal', label: 'Nota de un proyecto', hint: 'Una idea o un apunte para un proyecto' }] : []),
+    { key: 'journal', ic: 'book', color: 'pink', label: 'Entrada del diario', hint: 'Algo que quieres dejar escrito' },
   ];
   openModal({
     size: 'sm',
@@ -274,6 +324,7 @@ export function openOrganize(id) {
         if (kind === 'event') openEventForm({ defaults: { title, notes: extra }, onSaved: done });
         if (kind === 'project') openProjectForm({ defaults: { title, description: extra }, onSaved: done });
         if (kind === 'entry') openEntryForm({ text: note.text, onSaved: done });
+        if (kind === 'journal') openJournalForm({ defaults: { text: note.text }, onSaved: done });
       }));
     },
   });
@@ -303,6 +354,7 @@ export function openQuickAdd(anchor, defaults = {}) {
     { label: 'Tarea', hint: 'Algo que hay que hacer', icon: 'check-square', color: 'blue', onClick: () => openTaskForm({ defaults }) },
     { label: 'Evento', hint: 'Cita, examen, entrega o fecha importante', icon: 'calendar', color: 'indigo', onClick: () => openEventForm({ defaults }) },
     { label: 'Proyecto', hint: 'Un objetivo con varias tareas', icon: 'folder', color: 'violet', onClick: () => openProjectForm({}) },
+    { label: 'Entrada del diario', hint: 'Lo que ha pasado y cómo lo has vivido', icon: 'book', color: 'pink', onClick: () => openJournalForm({ defaults: defaults.date ? { date: defaults.date } : {} }) },
     { label: 'Apunte rápido', hint: 'A la bandeja, para organizarlo después', icon: 'inbox', color: 'teal', onClick: () => openCaptureForm() },
   ]);
 }

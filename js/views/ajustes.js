@@ -9,16 +9,66 @@ import { categories } from '../query.js';
 import { openCategoryForm } from '../forms.js';
 import { todayKey, fmtMoment } from '../dates.js';
 
-export const APP_VERSION = '0.2.0'; // la misma que VERSION en sw.js
+export const APP_VERSION = '0.3.0'; // la misma que VERSION en sw.js
 
 const THEMES = [['auto', 'Como el dispositivo'], ['light', 'Claro'], ['dark', 'Oscuro']];
 
-const section = (title, ic, body, sub = '') => `
-  <section class="card settings-card">
+const section = (title, ic, body, sub = '', anchor = '') => `
+  <section class="card settings-card"${anchor ? ` data-anchor="${anchor}"` : ''}>
     <header class="card-head"><h2 class="card-title">${icon(ic)}<span>${title}</span></h2></header>
     ${sub ? `<p class="card-sub">${sub}</p>` : ''}
     ${body}
   </section>`;
+
+// Línea «Etiqueta – Texto» con su icono.
+const guideRow = (ic, color, label, text) => `
+  <div class="guide-row">
+    <span class="menu-icon" style="--c:var(--c-${color})">${icon(ic)}</span>
+    <p><b>${label}</b> – ${text}</p>
+  </div>`;
+
+// Cada apartado responde a una pregunta y todos trabajan sobre la misma información.
+function guideSection() {
+  return section('Cómo se organiza LifeLine', 'target', `
+    <div class="guide">
+      ${guideRow('calendar', 'indigo', 'Calendario', 'Cuándo ocurren las cosas.')}
+      ${guideRow('check-square', 'blue', 'Tareas y proyectos', 'Qué hay que hacer y qué quieres conseguir.')}
+      ${guideRow('sprint', 'violet', 'Sprints', 'En qué quieres avanzar esta semana.')}
+      ${guideRow('book', 'pink', 'Diario', 'Qué ha ocurrido y cómo lo has vivido.')}
+      ${guideRow('chart', 'teal', 'Registros', 'Qué has hecho y cómo ha ido cambiando con el tiempo.')}
+    </div>
+    <p class="guide-example">Un examen es un evento del calendario. Prepararlo es un proyecto con sus tareas. Las que tocan esta semana entran en el sprint. Cómo fue la semana queda en el diario, y todo ello se puede volver a mirar en los registros.</p>`,
+  'Cada apartado responde a una pregunta. La información se guarda una sola vez y los apartados la comparten.');
+}
+
+// Qué es un sprint aquí, cómo encaja con lo demás y cómo queda la app si no se usan.
+function sprintsSection(on) {
+  return section('Sprints', 'sprint', `
+    <label class="switch switch-row">
+      <input type="checkbox" data-use-sprints${on ? ' checked' : ''}>
+      <span class="switch-track" aria-hidden="true"></span>
+      <span>Usar sprints<small>${on ? 'Tienen su apartado, su bloque en Inicio y su etiqueta en las tareas.' : 'Están guardados y fuera de la vista. Al activarlos vuelven tal como los dejaste.'}</small></span>
+    </label>
+
+    <p class="guide-title">Qué es un sprint</p>
+    <p class="muted">Una semana con intención. El lunes eliges un objetivo y unas pocas tareas en las que quieres avanzar, durante la semana ves cómo van y al terminar anotas qué has conseguido y cómo ha ido. El sprint contesta a una sola pregunta, en qué quiero avanzar estos días, y deja las demás a los otros apartados.</p>
+
+    <p class="guide-title">Cómo encaja con lo demás</p>
+    <div class="guide">
+      ${guideRow('check-square', 'blue', 'Tareas y proyectos', 'El sprint elige de ahí lo de esta semana. La tarea sigue siendo la misma, en su lista y en su proyecto, con su fecha y su prioridad. Marcarla como hecha en un sitio la marca en todos.')}
+      ${guideRow('calendar', 'indigo', 'Calendario', 'Citas, exámenes y eventos siguen en su día. El sprint recoge aquello en lo que quieres avanzar y el calendario, lo que ocurre a una hora concreta.')}
+      ${guideRow('book', 'pink', 'Diario', 'La revisión y la reflexión cierran la semana de trabajo. El diario queda para todo lo demás que quieras contar.')}
+      ${guideRow('chart', 'teal', 'Registros', 'Cada sprint cerrado aparece en su periodo con su objetivo y lo que se hizo.')}
+    </div>
+
+    <p class="guide-title">Con sprints o sin ellos</p>
+    <div class="guide">
+      ${guideRow('sprint', 'violet', 'Con sprints', 'Planificas al empezar la semana, sigues el tablero y cierras al terminar. Inicio enseña el sprint en curso y las tareas elegidas llevan la etiqueta Sprint.')}
+      ${guideRow('check', 'green', 'Sin sprints', 'Te organizas por fechas, prioridades y proyectos. Tareas, calendario, diario y registros funcionan completos por sí solos.')}
+      ${guideRow('clock', 'amber', 'A ratos', 'Una semana sin sprint es una semana normal. Puedes planificar solo las que lo pidan, como la de antes de un examen.')}
+    </div>`,
+  'Una forma opcional de planificar la semana.', 'sprints');
+}
 
 function categoriesSection() {
   const list = categories();
@@ -52,6 +102,7 @@ function dataSection() {
     plural(st.projects.length, 'proyecto', 'proyectos'),
     plural(st.events.length, 'evento', 'eventos'),
     st.sprints.length ? plural(st.sprints.length, 'sprint', 'sprints') : '',
+    st.journal.length ? plural(st.journal.length, 'entrada del diario', 'entradas del diario') : '',
   ].filter(Boolean).join(' · ');
   return section('Tus datos', 'download', `
     <p class="muted">${esc(summary)} · ${kb}&nbsp;KB</p>
@@ -105,6 +156,8 @@ export function render(ctx) {
           ${THEMES.map(([t, label]) => `<button data-theme-set="${t}" class="${s.theme === t ? 'active' : ''}" aria-pressed="${s.theme === t}">${label}</button>`).join('')}
         </div>`)}
 
+      ${guideSection()}
+      ${sprintsSection(s.useSprints !== false)}
       ${categoriesSection()}
       ${dataSection()}
 
@@ -129,6 +182,11 @@ export function mount(root, ctx) {
     setSetting('theme', b.dataset.themeSet);
     ctx.applyTheme();
   }));
+
+  root.querySelector('[data-use-sprints]')?.addEventListener('change', (e) => {
+    setSetting('useSprints', e.target.checked);
+    toast(e.target.checked ? 'Sprints activados' : 'Sprints desactivados');
+  });
 
   root.querySelector('[data-cat-new]')?.addEventListener('click', () => openCategoryForm());
   root.querySelectorAll('[data-cat-edit]').forEach((b) => b.addEventListener('click', () => openCategoryForm({ id: b.dataset.catEdit })));
@@ -185,7 +243,7 @@ export function mount(root, ctx) {
   root.querySelector('[data-reset]')?.addEventListener('click', async () => {
     const ok = await confirmDialog({
       title: 'Borrar todo',
-      message: 'Se borrarán tus tareas, proyectos, eventos, sprints, notas e historial de este dispositivo. Descarga antes una copia si quieres conservarlos.',
+      message: 'Se borrarán tus tareas, proyectos, eventos, sprints, diario, notas e historial de este dispositivo. Descarga antes una copia si quieres conservarlos.',
       confirmText: 'Borrar todo',
     });
     if (ok) { resetAll(); ctx.applyTheme(); toast('Datos borrados'); }

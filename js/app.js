@@ -3,17 +3,23 @@
 import { getState, subscribe, rescuedOnLoad, toggleTask, setSetting } from './store.js';
 import { refreshModal, isModalOpen, toast, openMenu } from './ui.js';
 import { currentMonth, todayKey, monthOf } from './dates.js';
-import { openTaskForm, openEventForm, openProjectForm, openOrganize, openQuickAdd } from './forms.js';
+import { openTaskForm, openEventForm, openProjectForm, openJournalForm, openOrganize, openQuickAdd } from './forms.js';
+import { sprintsOn } from './query.js';
 import { openSearch } from './search.js';
 import * as inicio from './views/inicio.js';
 import * as calendario from './views/calendario.js';
 import * as tareas from './views/tareas.js';
 import * as proyectos from './views/proyectos.js';
 import * as sprints from './views/sprints.js';
+import * as diario from './views/diario.js';
+import * as registros from './views/registros.js';
 import * as ajustes from './views/ajustes.js';
 
-const views = { inicio, calendario, tareas, proyectos, sprints, ajustes };
-const titles = { inicio: 'Inicio', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos', sprints: 'Sprints', ajustes: 'Ajustes' };
+const views = { inicio, calendario, tareas, proyectos, sprints, diario, registros, ajustes };
+const titles = {
+  inicio: 'Inicio', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos',
+  sprints: 'Sprints', diario: 'Diario', registros: 'Registros', ajustes: 'Ajustes',
+};
 
 // Estado de pantalla: lo que se está mirando, que no forma parte de los datos guardados.
 const ctx = {
@@ -24,6 +30,10 @@ const ctx = {
   projectFilter: 'active',
   entryKind: 'note',
   showDone: false,
+  journalFilter: { ...diario.NO_FILTER },
+  journalDraft: '',
+  reg: { mode: 'month', day: todayKey() },
+  regKind: '',
   installPrompt: null,
   get standalone() {
     return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -84,6 +94,8 @@ function render() {
   const path = `${name}/${param}`;
   if (path !== lastPath) {
     window.scrollTo(0, 0);
+    // Una ruta puede apuntar a una sección concreta de la vista, como #/ajustes/sprints.
+    if (param) root.querySelector(`[data-anchor="${CSS.escape(param)}"]`)?.scrollIntoView({ block: 'start' });
     lastPath = path;
   }
 }
@@ -96,6 +108,7 @@ function refreshShell() {
     el.setAttribute('aria-label', `${count} en la bandeja de entrada`);
   });
   document.querySelectorAll('[data-install-shell]').forEach((el) => { el.hidden = !ctx.installPrompt || ctx.standalone; });
+  document.querySelectorAll('[data-module="sprints"]').forEach((el) => { el.hidden = !sprintsOn(); });
 }
 
 const isDark = () => {
@@ -135,9 +148,13 @@ document.addEventListener('click', (e) => {
     case 'goto-day': goToDay(date); break;
     case 'search': openSearch({ goToDay }); break;
     case 'quick-add': openQuickAdd(el, currentRoute().name === 'calendario' ? { date: ctx.cal.day, due: ctx.cal.day } : {}); break;
+    case 'new-journal': openJournalForm({ defaults: { ...(date ? { date } : {}), projectId: project || '' } }); break;
+    case 'open-journal': openJournalForm({ id }); break;
     case 'more':
       openMenu(el, [
-        { label: 'Sprints', hint: 'Planificación semanal', icon: 'sprint', color: 'indigo', onClick: () => { location.hash = '#/sprints'; } },
+        ...(sprintsOn() ? [{ label: 'Sprints', hint: 'Planificación semanal', icon: 'sprint', color: 'indigo', onClick: () => { location.hash = '#/sprints'; } }] : []),
+        { label: 'Diario', hint: 'Reflexiones y recuerdos', icon: 'book', color: 'pink', onClick: () => { location.hash = '#/diario'; } },
+        { label: 'Registros', hint: 'Historial y evolución', icon: 'chart', color: 'teal', onClick: () => { location.hash = '#/registros'; } },
         { label: 'Ajustes', hint: 'Preferencias y copia de tus datos', icon: 'settings', color: 'slate', onClick: () => { location.hash = '#/ajustes'; } },
       ]);
       break;
@@ -167,6 +184,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', app
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && todayKey() !== lastDay) {
     if (ctx.cal.day === lastDay) ctx.cal = { ...ctx.cal, day: todayKey() };
+    if (ctx.reg.day === lastDay) ctx.reg = { ...ctx.reg, day: todayKey() };
     lastDay = todayKey();
     ctx.homeMonth = currentMonth();
     if (!isModalOpen()) render();
