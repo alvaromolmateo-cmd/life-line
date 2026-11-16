@@ -3,7 +3,7 @@
 
 import { esc, icon } from '../ui.js';
 import { getState, setDayNote, setSetting, EVENT_TYPE_COLOR, EVENT_TYPE_LABEL } from '../store.js';
-import { dayIndex, eventsOn, tasksOn, isOpen, journalOn, journalHeading } from '../query.js';
+import { dayIndex, eventsOn, tasksOn, isOpen, journalOn, journalHeading, deliveryState } from '../query.js';
 import { taskRow, eventRow } from '../components.js';
 import {
   todayKey, addDays, addMonths, monthOf, monthWeeks, weekDays, isoWeek, diffDays,
@@ -13,8 +13,9 @@ import {
 const MODES = [['month', 'Mes'], ['week', 'Semana'], ['day', 'Día']];
 const DOW = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
+// Una entrega ya entregada se ve tachada, como una tarea hecha.
 const eventChip = (e, tag = 'span') => `
-  <${tag} class="cal-chip"${tag === 'button' ? ` data-act="open-event" data-id="${e.id}"` : ''} style="--c:var(--c-${EVENT_TYPE_COLOR[e.type]})" title="${esc(EVENT_TYPE_LABEL[e.type])}">
+  <${tag} class="cal-chip ${e.done ? 'done' : ''}"${tag === 'button' ? ` data-act="open-event" data-id="${e.id}"` : ''} style="--c:var(--c-${EVENT_TYPE_COLOR[e.type]})" title="${esc([EVENT_TYPE_LABEL[e.type], deliveryState(e)].filter(Boolean).join(' · '))}">
     ${e.start ? `<b>${e.start}</b>` : ''}<span>${esc(e.title)}</span>
   </${tag}>`;
 
@@ -43,7 +44,7 @@ function monthView(ctx, index) {
           ${items.length > shown.length ? `<span class="cal-more">${items.length - shown.length} más</span>` : ''}
         </span>
         <span class="cal-dots">
-          ${items.slice(0, 4).map((it) => `<i style="--c:var(--c-${it.e ? EVENT_TYPE_COLOR[it.e.type] : 'blue'})"${it.t && !isOpen(it.t) ? ' class="off"' : ''}></i>`).join('')}
+          ${items.slice(0, 4).map((it) => `<i style="--c:var(--c-${it.e ? EVENT_TYPE_COLOR[it.e.type] : 'blue'})"${(it.t && !isOpen(it.t)) || it.e?.done ? ' class="off"' : ''}></i>`).join('')}
         </span>
       </button>`;
   }).join('');

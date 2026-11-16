@@ -128,7 +128,7 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
 export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
   const event = id ? eventOf(id) : null;
   if (id && !event) return;
-  const v = { title: '', type: 'event', date: todayKey(), start: '', end: '', place: '', notes: '', categoryId: '', projectId: '', ...defaults, ...(event || {}) };
+  const v = { title: '', type: 'event', date: todayKey(), start: '', end: '', place: '', notes: '', categoryId: '', projectId: '', done: false, ...defaults, ...(event || {}) };
   formModal({
     title: event ? 'Evento' : 'Nuevo evento',
     saveText: event ? 'Guardar' : 'Crear evento',
@@ -137,6 +137,14 @@ export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
       <div class="row2">
         ${selectField('Tipo', 'type', EVENT_TYPES.map((t) => [t, EVENT_TYPE_LABEL[t]]), v.type)}
         ${field('Fecha', `<input type="date" name="date" value="${esc(v.date)}" required>`)}
+      </div>
+      <div class="field" data-delivery${v.type === 'delivery' ? '' : ' hidden'}>
+        <label class="switch">
+          <input type="checkbox" name="done"${v.done ? ' checked' : ''}>
+          <span class="switch-track" aria-hidden="true"></span>
+          <span>Entregada</span>
+        </label>
+        <p class="field-hint">La fecha es el límite de entrega. Márcala cuando la entregues, aunque sea antes.</p>
       </div>
       <div class="row2">
         ${field('Empieza', `<input type="time" name="start" value="${esc(v.start)}">`)}
@@ -150,10 +158,16 @@ export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
         ${projectField(v.projectId)}
       </div>`,
     onSave: (data) => {
-      if (event) updateEvent(event.id, data);
-      else addEvent(data);
+      const payload = { ...data, done: data.done === 'on' };
+      if (event) updateEvent(event.id, payload);
+      else addEvent(payload);
       onSaved?.();
       if (!event) toast('Evento creado');
+    },
+    onMount: (form) => {
+      form.elements.type.addEventListener('change', () => {
+        form.querySelector('[data-delivery]').hidden = form.elements.type.value !== 'delivery';
+      });
     },
     onDelete: event ? async () => {
       const ok = await confirmDialog({ title: 'Eliminar evento', message: `Se eliminará «${esc(event.title)}».` });

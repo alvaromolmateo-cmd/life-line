@@ -51,6 +51,13 @@ export const eventsOn = (key) => getState().events.filter((e) => e.date === key)
 
 export const upcomingEvents = (from = todayKey()) => getState().events.filter((e) => e.date >= from).sort(byTime);
 
+// Entregas: eventos que se marcan como entregados. Vencida es la que sigue sin entregar pasada su fecha.
+export const isDelivery = (e) => e.type === 'delivery';
+export const isLateDelivery = (e) => isDelivery(e) && !e.done && e.date < todayKey();
+export const lateDeliveries = () => getState().events.filter(isLateDelivery).sort(byTime);
+// «Entregada», «Sin entregar» si ya venció, o nada.
+export const deliveryState = (e) => (!isDelivery(e) ? '' : e.done ? 'Entregada' : isLateDelivery(e) ? 'Sin entregar' : '');
+
 // Índice por día para pintar calendarios: clave → { events: [...], tasks: [...] }.
 export function dayIndex() {
   const map = new Map();
@@ -148,7 +155,7 @@ export function activityLabel(a) {
   const labels = {
     task: { created: 'Tarea creada', completed: 'Tarea completada', reopened: 'Tarea reabierta', deleted: 'Tarea eliminada' },
     project: { created: 'Proyecto creado', deleted: 'Proyecto eliminado' },
-    event: { created: 'Evento añadido', deleted: 'Evento eliminado' },
+    event: { created: 'Evento añadido', completed: 'Entrega completada', reopened: 'Entrega reabierta', deleted: 'Evento eliminado' },
     journal: { created: 'Entrada del diario', deleted: 'Entrada del diario eliminada' },
     sprint: { created: 'Sprint empezado', closed: 'Sprint cerrado', reopened: 'Sprint reabierto', deleted: 'Sprint eliminado' },
   };
@@ -164,7 +171,7 @@ export function activityLabel(a) {
 export function activityIcon(a) {
   if (a.kind === 'entry') return { note: 'note', idea: 'bulb', progress: 'trending' }[a.entryKind] || 'note';
   if (a.kind === 'project') return 'folder';
-  if (a.kind === 'event') return 'calendar';
+  if (a.kind === 'event') return a.action === 'completed' ? 'check' : 'calendar';
   if (a.kind === 'sprint') return 'sprint';
   if (a.kind === 'journal') return 'book';
   return a.action === 'completed' ? 'check' : 'check-square';
@@ -203,7 +210,7 @@ export function search(text, limit = 8) {
     .sort((a, b) => byTime(b, a))
     .map((e) => ({
       kind: 'event', id: e.id, title: e.title, icon: 'calendar',
-      sub: [EVENT_TYPE_LABEL[e.type], fmtRelative(e.date), e.start].filter(Boolean).join(' · '),
+      sub: [EVENT_TYPE_LABEL[e.type], deliveryState(e), fmtRelative(e.date), e.start].filter(Boolean).join(' · '),
     }));
 
   const journalHits = journal()

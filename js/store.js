@@ -165,14 +165,20 @@ function normTask(t, refs) {
   };
 }
 
+// Una entrega es la fecha límite de algo que hay que entregar: se marca como entregada el día que
+// se haga, antes de esa fecha o después. Los demás tipos de evento no se marcan.
 function normEvent(e, refs) {
   const start = cleanTime(e.start);
   const end = start ? cleanTime(e.end) : '';
+  const type = oneOf(e.type, EVENT_TYPES, 'event');
+  const done = type === 'delivery' && e.done === true;
   return {
     ...e,
     id: str(e.id) || uid(),
     title: str(e.title).trim() || 'Evento',
-    type: oneOf(e.type, EVENT_TYPES, 'event'),
+    type,
+    done,
+    doneAt: done ? (cleanIso(e.doneAt) || now()) : '',
     date: cleanKey(e.date),
     start,
     end: end && end > start ? end : '',
@@ -537,6 +543,7 @@ export function addEvent(data) {
     id = event.id;
     st.events.push(event);
     log(st, 'created', 'event', event);
+    if (event.done) log(st, 'completed', 'event', event);
   });
   return id;
 }
@@ -545,9 +552,20 @@ export function updateEvent(id, patch) {
   update((st) => {
     const event = st.events.find((e) => e.id === id);
     if (!event) return;
-    const next = normEvent({ ...event, ...patch }, refsOf(st));
-    if (next.date) Object.assign(event, next);
+    const wasDone = event.done;
+    const next = normEvent({ ...event, ...patch, doneAt: event.doneAt }, refsOf(st));
+    if (!next.date) return;
+    if (!wasDone && next.done) next.doneAt = now();
+    Object.assign(event, next);
+    if (!wasDone && event.done) log(st, 'completed', 'event', event);
+    // Si deja de ser una entrega, no se apunta como reabierta.
+    if (wasDone && !event.done && event.type === 'delivery') log(st, 'reopened', 'event', event);
   });
+}
+
+export function toggleEventDone(id) {
+  const event = state.events.find((e) => e.id === id);
+  if (event?.type === 'delivery') updateEvent(id, { done: !event.done });
 }
 
 export function removeEvent(id) {

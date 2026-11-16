@@ -6,7 +6,7 @@ import {
   getState, addTask, updateProject, addProjectEntry, removeProjectEntry,
   PROJECT_STATUSES, PROJECT_STATUS_LABEL, PRIORITY_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL,
 } from '../store.js';
-import { projectOf, projectStats, projectTasks, projectEvents, projectActivity, projectJournal, journalHeading, byDue, isOpen } from '../query.js';
+import { projectOf, projectStats, projectTasks, projectEvents, projectActivity, projectJournal, journalHeading, byDue, isOpen, isLateDelivery } from '../query.js';
 import { taskRow, eventRow, emptyState, progressBar, categoryChip, tagChips, statusBadge, priorityChip, activityRow } from '../components.js';
 import { fmtRelative, fmtShort, fmtMoment, todayKey, cap } from '../dates.js';
 
@@ -71,8 +71,9 @@ function detailView(p, ctx) {
   const open = tasks.filter(isOpen).sort(byDue);
   const done = tasks.filter((t) => !isOpen(t)).sort((a, b) => b.completedAt.localeCompare(a.completedAt));
   const events = projectEvents(p.id);
-  const upcoming = events.filter((e) => e.date >= todayKey());
-  const past = events.filter((e) => e.date < todayKey()).reverse();
+  // Una entrega vencida sin entregar sigue pendiente: va arriba, no con los pasados.
+  const upcoming = events.filter((e) => e.date >= todayKey() || isLateDelivery(e));
+  const past = events.filter((e) => e.date < todayKey() && !isLateDelivery(e)).reverse();
   const entries = p.entries.slice().sort((a, b) => b.at.localeCompare(a.at));
   const activity = projectActivity(p.id);
   const diary = projectJournal(p.id);

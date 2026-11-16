@@ -1,6 +1,6 @@
 // Arranque: enrutado por hash, render de vistas, acciones globales, tema, service worker e instalación.
 
-import { getState, subscribe, rescuedOnLoad, toggleTask, setSetting } from './store.js';
+import { getState, subscribe, rescuedOnLoad, toggleTask, toggleEventDone, setSetting } from './store.js';
 import { refreshModal, isModalOpen, toast, openMenu } from './ui.js';
 import { currentMonth, todayKey, monthOf } from './dates.js';
 import { openTaskForm, openEventForm, openProjectForm, openJournalForm, openOrganize, openQuickAdd } from './forms.js';
@@ -141,6 +141,7 @@ document.addEventListener('click', (e) => {
     case 'open-task': openTaskForm({ id }); break;
     case 'new-task': openTaskForm({ defaults: { due: date || '', projectId: project || '' } }); break;
     case 'open-event': openEventForm({ id }); break;
+    case 'toggle-event': toggleEventDone(id); break;
     case 'new-event': openEventForm({ defaults: { ...(date ? { date } : {}), projectId: project || '' } }); break;
     case 'new-project': openProjectForm(); break;
     case 'edit-project': openProjectForm({ id }); break;

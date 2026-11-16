@@ -3,7 +3,7 @@
 
 import { esc, icon } from './ui.js';
 import { EVENT_TYPE_LABEL, EVENT_TYPE_COLOR, PRIORITY_LABEL, PROJECT_STATUS_LABEL } from './store.js';
-import { categoryOf, projectOf, isOpen, isOverdue, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
+import { categoryOf, projectOf, isOpen, isOverdue, isDelivery, isLateDelivery, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
 import { fmtRelative, fmtTimeRange, fmtDayMonth, fmtWeekday, fmtMoment, todayKey, cap } from './dates.js';
 
 export const chip = (text, { color = '', ic = '', cls = '' } = {}) => `
@@ -69,10 +69,12 @@ export function taskRow(t, { project = true, due = true, category = true, sprint
 }
 
 // Fila de evento. Con `date` muestra el día además de la hora.
+// Una entrega lleva delante su casilla, para marcarla como entregada antes o después de la fecha límite.
 export function eventRow(e, { date = false, project = true } = {}) {
   const color = EVENT_TYPE_COLOR[e.type];
   const meta = [
     e.type !== 'event' ? chip(EVENT_TYPE_LABEL[e.type], { color }) : '',
+    isLateDelivery(e) ? chip('Sin entregar', { cls: 'chip-late' }) : '',
     e.place ? chip(e.place, { ic: 'pin' }) : '',
     project ? projectChip(e.projectId) : '',
     categoryChip(e.categoryId),
@@ -83,7 +85,7 @@ export function eventRow(e, { date = false, project = true } = {}) {
   const sub = date
     ? `${cap(e.date === todayKey() ? 'hoy' : fmtWeekday(e.date))} · ${fmtTimeRange(e.start, e.end)}`
     : fmtTimeRange(e.start, e.end);
-  return `
+  const row = `
     <button class="ev" data-act="open-event" data-id="${e.id}" style="--c:var(--c-${color})">
       ${when || '<i class="ev-bar"></i>'}
       <span class="ev-body">
@@ -92,6 +94,12 @@ export function eventRow(e, { date = false, project = true } = {}) {
         ${meta.trim() ? `<span class="task-meta">${meta}</span>` : ''}
       </span>
     </button>`;
+  if (!isDelivery(e)) return row;
+  return `
+    <div class="ev-row ${e.done ? 'done' : ''}">
+      <button class="check ${e.done ? 'on' : ''}" data-act="toggle-event" data-id="${e.id}" aria-pressed="${e.done}" aria-label="${e.done ? 'Marcar como sin entregar' : 'Marcar como entregada'}">${icon('check')}</button>
+      ${row}
+    </div>`;
 }
 
 export const progressBar = (done, total) => `

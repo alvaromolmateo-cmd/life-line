@@ -374,6 +374,12 @@ h1 { font-size: 27px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em
 .ev-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ev-title { font-weight: 550; }
 .ev-sub { font-size: 12.5px; color: var(--text-2); }
+/* Entrega: la casilla va delante del evento, como en las tareas. */
+.ev-row { display: flex; align-items: flex-start; gap: 11px; }
+.ev-row > .check { margin-top: 10px; }
+.ev-row > .ev { flex: 1; min-width: 0; }
+.ev-row.done .ev-title { color: var(--muted); text-decoration: line-through; }
+.ev-row.done .ev-sub, .ev-row.done .task-meta { opacity: .65; }
 
 /* ---------- Inicio ---------- */
 .dash { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; grid-auto-flow: row dense; }

@@ -5,7 +5,7 @@
 import { esc, icon, plural } from '../ui.js';
 import { getState, EVENT_TYPE_LABEL, ENTRY_KIND_LABEL } from '../store.js';
 import {
-  topCategories, subcategories, inCategory, projectOf, journalHeading, sprintsOn, sprintStats, sprintState, SPRINT_STATE_LABEL, isOpen,
+  topCategories, subcategories, inCategory, projectOf, journalHeading, sprintsOn, sprintStats, sprintState, SPRINT_STATE_LABEL, isOpen, deliveryState,
 } from '../query.js';
 import { emptyState, activityRow, statusBadge, progressBar } from '../components.js';
 import {
@@ -279,7 +279,7 @@ function timelineView(p, data, kind) {
     add('task', dayOf(t.completedAt), t.completedAt, t.title, ['Tarea hecha', fmtTime(t.completedAt), projectOf(t.projectId)?.title].filter(Boolean).join(' · '), 'check', `data-act="open-task" data-id="${t.id}"`, true);
   }
   for (const e of data.events) {
-    add('event', e.date, `${e.date}T${e.start || '00:00'}`, e.title, [EVENT_TYPE_LABEL[e.type], fmtTimeRange(e.start, e.end), e.place].filter(Boolean).join(' · '), 'calendar', `data-act="open-event" data-id="${e.id}"`);
+    add('event', e.date, `${e.date}T${e.start || '00:00'}`, e.title, [EVENT_TYPE_LABEL[e.type], deliveryState(e), fmtTimeRange(e.start, e.end), e.place].filter(Boolean).join(' · '), e.done ? 'check' : 'calendar', `data-act="open-event" data-id="${e.id}"`, e.done);
   }
   for (const j of data.entries) {
     add('journal', j.date, `${j.date}T23:59`, journalHeading(j), j.starred ? 'Diario · Momento importante' : 'Diario', j.starred ? 'star' : 'book', `href="#/diario/${j.id}"`);
