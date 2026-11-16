@@ -2,7 +2,7 @@
 // Solo leen; los cambios pasan siempre por las acciones de store.js.
 
 import { getState, EVENT_TYPE_LABEL, ENTRY_KIND_LABEL, PROJECT_STATUS_LABEL } from './store.js';
-import { todayKey, fmtRelative, fmtLong, cap } from './dates.js';
+import { todayKey, fmtRelative, fmtLong, fmtWeekRange, weekStart, diffDays, isoWeek, cap } from './dates.js';
 
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 };
 
@@ -66,12 +66,62 @@ export const projectEvents = (id) => getState().events.filter((e) => e.projectId
 export const projectActivity = (id) => getState().activity.filter((a) => a.projectId === id).slice().reverse();
 export const recentActivity = (limit = 8) => getState().activity.slice(-limit).reverse();
 
+// ---------- Sprints ----------
+export const thisWeek = () => weekStart(todayKey());
+export const sprints = () => getState().sprints.slice().sort((a, b) => b.start.localeCompare(a.start));
+export const sprintOf = (id) => getState().sprints.find((s) => s.id === id) || null;
+export const sprintForWeek = (start) => getState().sprints.find((s) => s.start === start) || null;
+
+// El estado sale de las fechas: planificado si la semana no ha llegado, en curso durante la semana,
+// por revisar cuando ya pasó y cerrado tras la revisión.
+export const SPRINT_STATE_LABEL = { planned: 'Planificado', active: 'En curso', review: 'Por revisar', closed: 'Cerrado' };
+export function sprintState(s) {
+  if (s.closedAt) return 'closed';
+  const week = thisWeek();
+  return s.start > week ? 'planned' : s.start === week ? 'active' : 'review';
+}
+
+export const sprintTasks = (s) => s.taskIds.map(taskOf).filter(Boolean);
+
+// Cómo va cada tarea del sprint. Uno cerrado responde con lo que quedó guardado al cerrarlo.
+export function sprintItems(s) {
+  if (s.closedAt) return s.result;
+  return sprintTasks(s).map((t) => ({ id: t.id, title: t.title, done: !isOpen(t), completedAt: t.completedAt }));
+}
+
+export function sprintStats(s) {
+  const items = sprintItems(s);
+  return { total: items.length, done: items.filter((i) => i.done).length };
+}
+
+// El sprint de esta semana, si existe y sigue abierto.
+export function currentSprint() {
+  const s = sprintForWeek(thisWeek());
+  return s && !s.closedAt ? s : null;
+}
+
+// Sprints a los que todavía se les pueden asignar tareas desde la ficha de una tarea.
+export const upcomingSprints = () => getState().sprints
+  .filter((s) => !s.closedAt && s.start >= thisWeek())
+  .sort((a, b) => a.start.localeCompare(b.start));
+export const taskSprint = (taskId) => upcomingSprints().find((s) => s.taskIds.includes(taskId)) || null;
+
+// «Esta semana», «Semana que viene», «Semana pasada» o «Semana 47».
+export function weekLabel(start) {
+  const diff = diffDays(start, thisWeek());
+  if (diff === 0) return 'Esta semana';
+  if (diff === 7) return 'Semana que viene';
+  if (diff === -7) return 'Semana pasada';
+  return `Semana ${isoWeek(start)}`;
+}
+
 // Frase corta para un apunte del historial.
 export function activityLabel(a) {
   const labels = {
     task: { created: 'Tarea creada', completed: 'Tarea completada', reopened: 'Tarea reabierta', deleted: 'Tarea eliminada' },
     project: { created: 'Proyecto creado', deleted: 'Proyecto eliminado' },
     event: { created: 'Evento añadido', deleted: 'Evento eliminado' },
+    sprint: { created: 'Sprint empezado', closed: 'Sprint cerrado', reopened: 'Sprint reabierto', deleted: 'Sprint eliminado' },
   };
   if (a.kind === 'project' && a.action === 'status') {
     return { active: 'Proyecto reactivado', paused: 'Proyecto en pausa', done: 'Proyecto terminado' }[a.to] || 'Proyecto actualizado';
@@ -86,6 +136,7 @@ export function activityIcon(a) {
   if (a.kind === 'entry') return { note: 'note', idea: 'bulb', progress: 'trending' }[a.entryKind] || 'note';
   if (a.kind === 'project') return 'folder';
   if (a.kind === 'event') return 'calendar';
+  if (a.kind === 'sprint') return 'sprint';
   return a.action === 'completed' ? 'check' : 'check-square';
 }
 
@@ -125,6 +176,15 @@ export function search(text, limit = 8) {
       sub: [EVENT_TYPE_LABEL[e.type], fmtRelative(e.date), e.start].filter(Boolean).join(' · '),
     }));
 
+  const sprintHits = st.sprints
+    .filter((s) => hit('sprint', s.goal, s.review, s.reflection, fmtWeekRange(s.start), s.result.map((r) => r.title)))
+    .sort((a, b) => b.start.localeCompare(a.start))
+    .map((s) => ({
+      kind: 'sprint', id: s.start, icon: 'sprint',
+      title: s.goal.trim() || `Sprint del ${fmtWeekRange(s.start)}`,
+      sub: [s.goal.trim() ? fmtWeekRange(s.start) : '', SPRINT_STATE_LABEL[sprintState(s)]].filter(Boolean).join(' · '),
+    }));
+
   const entries = [];
   for (const p of st.projects) {
     for (const e of p.entries) {
@@ -146,6 +206,7 @@ export function search(text, limit = 8) {
     { label: 'Tareas', items: tasks },
     { label: 'Proyectos', items: projects },
     { label: 'Eventos', items: events },
+    { label: 'Sprints', items: sprintHits },
     { label: 'Notas de proyectos', items: entries },
     { label: 'Anotaciones del calendario', items: notes },
     { label: 'Bandeja de entrada', items: inbox },

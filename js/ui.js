@@ -51,9 +51,11 @@ export function closeModal() {
 function drawModal(keepScroll = false) {
   const host = document.getElementById('modal');
   const prev = keepScroll ? panelEl()?.querySelector('.modal-body')?.scrollTop : 0;
+  // Al repintar un modal ya abierto no se repite la animación de entrada.
+  const still = keepScroll ? 'still' : '';
   host.innerHTML = `
-    <div class="modal-backdrop" data-close></div>
-    <div class="modal-panel ${modal.size || ''}" role="dialog" aria-modal="true">${modal.render()}</div>`;
+    <div class="modal-backdrop ${still}" data-close></div>
+    <div class="modal-panel ${modal.size || ''} ${still}" role="dialog" aria-modal="true">${modal.render()}</div>`;
   document.body.classList.add('modal-open');
   host.querySelector('[data-close]').addEventListener('click', closeModal);
   host.querySelectorAll('[data-modal-close]').forEach((b) => b.addEventListener('click', closeModal));
@@ -129,7 +131,9 @@ export function openMenu(anchor, items) {
   const width = Math.min(280, window.innerWidth - 16);
   el.style.width = `${width}px`;
   el.style.left = `${Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8))}px`;
-  el.style.top = `${r.bottom + 8}px`;
+  // Se abre hacia abajo; si no cabe, como en la barra inferior del móvil, hacia arriba.
+  const below = r.bottom + 8;
+  el.style.top = `${below + el.offsetHeight > window.innerHeight - 8 ? Math.max(8, r.top - 8 - el.offsetHeight) : below}px`;
   menuAnchor = anchor;
   anchor.setAttribute('aria-expanded', 'true');
   el.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', () => {

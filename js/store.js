@@ -5,10 +5,10 @@
 // y a su categoría, y el calendario la muestra por su fecha límite. No hay copias de la misma información.
 
 import { uid } from './ui.js';
-import { isKey, isTime } from './dates.js';
+import { isKey, isTime, weekStart, todayKey, addDays, fmtWeekRange } from './dates.js';
 
 const STORAGE_KEY = 'lifeline:data';
-export const DATA_VERSION = 1;
+export const DATA_VERSION = 2;
 
 export const TASK_STATUSES = ['pending', 'doing', 'done'];
 export const TASK_STATUS_LABEL = { pending: 'Pendiente', doing: 'En curso', done: 'Hecha' };
@@ -32,10 +32,11 @@ export const COLOR_LABEL = {
 };
 
 // Bloques de la pantalla de inicio. El orden y cuáles se ven lo decide cada persona.
-export const WIDGETS = ['hoy', 'calendario', 'tareas', 'eventos', 'proyectos', 'bandeja', 'actividad'];
+export const WIDGETS = ['hoy', 'calendario', 'sprint', 'tareas', 'eventos', 'proyectos', 'bandeja', 'actividad'];
 export const WIDGET_LABEL = {
   hoy: 'Tu día',
   calendario: 'Calendario',
+  sprint: 'Sprint de la semana',
   tareas: 'Tareas pendientes',
   eventos: 'Próximos eventos',
   proyectos: 'Proyectos activos',
@@ -69,6 +70,7 @@ export function defaultState() {
     tasks: [],
     projects: [],
     events: [],
+    sprints: [],
     dayNotes: {},
     activity: [],
     settings: { ...DEFAULT_SETTINGS, dashboard: defaultDashboard() },
@@ -174,6 +176,31 @@ function normEvent(e, refs) {
   };
 }
 
+// Lo que quedó de cada tarea al cerrar el sprint. Guarda el título tal como era, para que el
+// historial se siga entendiendo aunque la tarea cambie o se borre después.
+function normResult(r) {
+  const done = r.done === true;
+  return { ...r, id: str(r.id), title: str(r.title).trim() || 'Tarea', done, completedAt: done ? cleanIso(r.completedAt) : '' };
+}
+
+// Un sprint es una semana, de lunes a domingo: `start` es siempre su lunes.
+function normSprint(s) {
+  const start = cleanKey(s.start);
+  const closedAt = cleanIso(s.closedAt);
+  return {
+    ...s,
+    id: str(s.id) || uid(),
+    start: start ? weekStart(start) : '',
+    goal: str(s.goal),
+    taskIds: [...new Set((Array.isArray(s.taskIds) ? s.taskIds : []).map(str).filter(Boolean))],
+    review: str(s.review),
+    reflection: str(s.reflection),
+    result: closedAt ? (Array.isArray(s.result) ? s.result : []).filter(Boolean).map(normResult) : [],
+    createdAt: cleanIso(s.createdAt) || now(),
+    closedAt,
+  };
+}
+
 function normDashboard(list) {
   const seen = new Set();
   const out = [];
@@ -190,6 +217,7 @@ function normDashboard(list) {
 // Adapta datos guardados o importados a la estructura actual, conservando lo que no conoce.
 function migrate(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Formato no válido');
+  const from = Number(data.version) || 1;
   const out = { ...defaultState(), ...data };
   out.version = DATA_VERSION;
 
@@ -203,6 +231,8 @@ function migrate(data) {
   out.tasks = (Array.isArray(data.tasks) ? data.tasks : []).filter(Boolean).map((t) => normTask(t, refs));
   out.events = (Array.isArray(data.events) ? data.events : []).filter(Boolean).map((e) => normEvent(e, refs)).filter((e) => e.date);
 
+  out.sprints = (Array.isArray(data.sprints) ? data.sprints : []).filter(Boolean).map(normSprint).filter((s) => s.start);
+
   const notes = data.dayNotes && typeof data.dayNotes === 'object' ? data.dayNotes : {};
   out.dayNotes = Object.fromEntries(Object.entries(notes).filter(([k, v]) => isKey(k) && str(v).trim()).map(([k, v]) => [k, str(v)]));
 
@@ -211,6 +241,13 @@ function migrate(data) {
   out.settings.name = str(out.settings.name);
   out.settings.theme = oneOf(out.settings.theme, ['auto', 'light', 'dark'], 'auto');
   out.settings.calendarMode = oneOf(out.settings.calendarMode, ['month', 'week', 'day'], 'month');
+  // Versión 2 – Llegan los sprints. Su bloque de Inicio se coloca tras el calendario en vez de al final.
+  if (from < 2 && Array.isArray(out.settings.dashboard) && !out.settings.dashboard.some((w) => w?.id === 'sprint')) {
+    const list = out.settings.dashboard.slice();
+    const at = Math.max(list.findIndex((w) => w?.id === 'calendario'), list.findIndex((w) => w?.id === 'hoy'));
+    list.splice(at + 1, 0, { id: 'sprint', on: true });
+    out.settings.dashboard = list;
+  }
   out.settings.dashboard = normDashboard(out.settings.dashboard);
   delete out.exportedAt;
   return out;
@@ -391,6 +428,8 @@ export function removeTask(id) {
     const task = st.tasks.find((t) => t.id === id);
     if (!task) return;
     st.tasks = st.tasks.filter((t) => t.id !== id);
+    // Los sprints cerrados conservan su resumen; de los abiertos sale sin más.
+    for (const s of st.sprints) if (!s.closedAt) s.taskIds = s.taskIds.filter((x) => x !== id);
     log(st, 'deleted', 'task', task);
   });
 }
@@ -477,6 +516,127 @@ export function removeEvent(id) {
     if (!event) return;
     st.events = st.events.filter((e) => e.id !== id);
     log(st, 'deleted', 'event', event);
+  });
+}
+
+// ---------- Sprints ----------
+// Planificación semanal opcional. Un sprint solo guarda los identificadores de sus tareas: la tarea
+// sigue siendo una sola, esté en un proyecto, en el calendario o en la semana.
+const sprintTitle = (s) => `Semana ${fmtWeekRange(s.start)}`;
+const findSprint = (st, id) => st.sprints.find((s) => s.id === id);
+
+// Semana a la que pasan las tareas abiertas al cerrar: la siguiente al sprint o, si ya pasó, la actual.
+export function carryWeek(start) {
+  const next = addDays(start, 7);
+  const current = weekStart(todayKey());
+  return next > current ? next : current;
+}
+
+// Hay un sprint por semana: si ya existe el de esa semana, se devuelve ese.
+export function addSprint({ start, goal = '' }) {
+  if (!isKey(start)) return null;
+  const week = weekStart(start);
+  const existing = state.sprints.find((s) => s.start === week);
+  if (existing) return existing.id;
+  let id = null;
+  update((st) => {
+    const sprint = normSprint({ id: uid(), start: week, goal: str(goal).trim(), createdAt: now() });
+    id = sprint.id;
+    st.sprints.push(sprint);
+    log(st, 'created', 'sprint', { id, title: sprintTitle(sprint) });
+  });
+  return id;
+}
+
+// Objetivo, revisión y reflexión.
+export function updateSprint(id, patch, opts) {
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (!sprint) return;
+    for (const key of ['goal', 'review', 'reflection']) if (key in patch) sprint[key] = str(patch[key]);
+  }, opts);
+}
+
+export function addSprintTask(id, taskId) {
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (!sprint || sprint.closedAt || sprint.taskIds.includes(taskId)) return;
+    if (st.tasks.some((t) => t.id === taskId)) sprint.taskIds.push(taskId);
+  });
+}
+
+export function removeSprintTask(id, taskId) {
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (sprint && !sprint.closedAt) sprint.taskIds = sprint.taskIds.filter((x) => x !== taskId);
+  });
+}
+
+// Deja la tarea en un único sprint de los que están por delante, esta semana o las siguientes, o en ninguno.
+export function setTaskSprint(taskId, sprintId) {
+  const current = weekStart(todayKey());
+  update((st) => {
+    for (const s of st.sprints) {
+      if (s.closedAt || s.start < current) continue;
+      const has = s.taskIds.includes(taskId);
+      if (s.id === sprintId) {
+        if (!has) s.taskIds.push(taskId);
+      } else if (has) {
+        s.taskIds = s.taskIds.filter((x) => x !== taskId);
+      }
+    }
+  });
+}
+
+// Cierra la semana: guarda cómo quedó cada tarea, la revisión y la reflexión. Con `carry`, las tareas
+// abiertas pasan al sprint de la semana que toca, que se crea si hace falta. Devuelve esa semana.
+export function closeSprint(id, { review = '', reflection = '', carry = false } = {}) {
+  let carried = '';
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (!sprint || sprint.closedAt) return;
+    const tasks = sprint.taskIds.map((tid) => st.tasks.find((t) => t.id === tid)).filter(Boolean);
+    sprint.taskIds = tasks.map((t) => t.id);
+    sprint.result = tasks.map((t) => normResult({ id: t.id, title: t.title, done: t.status === 'done', completedAt: t.completedAt }));
+    sprint.review = str(review).trim();
+    sprint.reflection = str(reflection).trim();
+    sprint.closedAt = now();
+    log(st, 'closed', 'sprint', { id: sprint.id, title: sprintTitle(sprint) });
+
+    const open = tasks.filter((t) => t.status !== 'done');
+    if (!carry || !open.length) return;
+    const week = carryWeek(sprint.start);
+    let next = st.sprints.find((s) => s.start === week);
+    if (!next) {
+      next = normSprint({ id: uid(), start: week, createdAt: now() });
+      st.sprints.push(next);
+      log(st, 'created', 'sprint', { id: next.id, title: sprintTitle(next) });
+    }
+    if (next.closedAt) return;
+    for (const t of open) if (!next.taskIds.includes(t.id)) next.taskIds.push(t.id);
+    carried = week;
+  });
+  return carried;
+}
+
+export function reopenSprint(id) {
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (!sprint || !sprint.closedAt) return;
+    sprint.closedAt = '';
+    sprint.result = [];
+    sprint.taskIds = sprint.taskIds.filter((tid) => st.tasks.some((t) => t.id === tid));
+    log(st, 'reopened', 'sprint', { id: sprint.id, title: sprintTitle(sprint) });
+  });
+}
+
+// Las tareas del sprint se conservan en su sitio.
+export function removeSprint(id) {
+  update((st) => {
+    const sprint = findSprint(st, id);
+    if (!sprint) return;
+    st.sprints = st.sprints.filter((s) => s.id !== id);
+    log(st, 'deleted', 'sprint', { id: sprint.id, title: sprintTitle(sprint) });
   });
 }
 

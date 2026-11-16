@@ -5,15 +5,15 @@ import { esc, icon, openModal, closeModal, modalHeader, confirmDialog, openMenu,
 import {
   getState, addTask, updateTask, removeTask, addEvent, updateEvent, removeEvent,
   addProject, updateProject, removeProject, addProjectEntry, addInbox, removeInbox,
-  addCategory, updateCategory,
+  addCategory, updateCategory, setTaskSprint,
   TASK_STATUSES, TASK_STATUS_LABEL, PRIORITIES, PRIORITY_LABEL, PROJECT_STATUSES, PROJECT_STATUS_LABEL,
   EVENT_TYPES, EVENT_TYPE_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL, COLORS, COLOR_LABEL,
 } from './store.js';
-import { categories, taskOf, eventOf, projectOf, categoryOf } from './query.js';
-import { todayKey } from './dates.js';
+import { categories, taskOf, eventOf, projectOf, categoryOf, upcomingSprints, taskSprint, thisWeek } from './query.js';
+import { todayKey, fmtWeekRange } from './dates.js';
 
 // ---------- Campos ----------
-const field = (label, control, cls = '') => `<label class="field ${cls}"><span class="field-label">${label}</span>${control}</label>`;
+export const field = (label, control, cls = '') => `<label class="field ${cls}"><span class="field-label">${label}</span>${control}</label>`;
 
 const options = (pairs, value) => pairs.map(([v, text]) => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(text)}</option>`).join('');
 
@@ -27,9 +27,17 @@ const projectField = (value) => {
   return selectField('Proyecto', 'projectId', [['', 'Sin proyecto'], ...list.map((p) => [p.id, p.title])], value);
 };
 
+// Solo aparece si hay algún sprint abierto, de esta semana o de las siguientes.
+const sprintField = (value) => {
+  const list = upcomingSprints();
+  if (!list.length) return '';
+  const name = (s) => (s.start === thisWeek() ? `Esta semana – ${fmtWeekRange(s.start)}` : `Semana ${fmtWeekRange(s.start)}`);
+  return selectField('Sprint', 'sprintId', [['', 'Fuera del sprint'], ...list.map((s) => [s.id, name(s)])], value);
+};
+
 const readForm = (form) => Object.fromEntries(new FormData(form).entries());
 
-function formModal({ title, sub = '', body, saveText = 'Guardar', onSave, onDelete, size = '' }) {
+export function formModal({ title, sub = '', body, saveText = 'Guardar', onSave, onDelete, size = '' }) {
   openModal({
     size,
     render: () => `
@@ -67,6 +75,7 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
   const task = id ? taskOf(id) : null;
   if (id && !task) return;
   const v = { title: '', notes: '', status: 'pending', priority: 'normal', due: '', categoryId: '', projectId: '', tags: [], ...defaults, ...(task || {}) };
+  const sprintBefore = task ? (taskSprint(task.id)?.id || '') : (defaults.sprintId || '');
   formModal({
     title: task ? 'Tarea' : 'Nueva tarea',
     saveText: task ? 'Guardar' : 'Crear tarea',
@@ -82,10 +91,13 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
         ${categoryField(v.categoryId)}
       </div>
       ${projectField(v.projectId)}
+      ${sprintField(sprintBefore)}
       ${field('Etiquetas', `<input name="tags" value="${esc(v.tags.join(', '))}" autocomplete="off" placeholder="Separadas por comas">`)}`,
-    onSave: (data) => {
+    onSave: ({ sprintId, ...data }) => {
+      // El sprint se guarda aparte: es el sprint el que apunta a sus tareas.
+      const taskId = task ? task.id : addTask(data);
       if (task) updateTask(task.id, data);
-      else addTask(data);
+      if (sprintId !== undefined && sprintId !== (task ? sprintBefore : '')) setTaskSprint(taskId, sprintId);
       onSaved?.();
       if (!task) toast('Tarea creada');
     },

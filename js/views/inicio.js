@@ -4,10 +4,10 @@ import { esc, icon, openModal, modalHeader, plural, toast } from '../ui.js';
 import { getState, addInbox, toggleWidget, moveWidget, WIDGET_LABEL } from '../store.js';
 import {
   openTasks, eventsOn, tasksOn, upcomingEvents, dayIndex, projectStats, recentActivity,
-  isOpen, isOverdue, byDue,
+  isOpen, isOverdue, byDue, currentSprint, sprintTasks,
 } from '../query.js';
 import { taskRow, eventRow, card, cardLink, emptyState, progressBar, categoryChip, activityRow } from '../components.js';
-import { todayKey, toKey, fmtLong, fmtMonth, fmtRelative, monthWeeks, monthOf, addMonths, cap } from '../dates.js';
+import { todayKey, toKey, fmtLong, fmtMonth, fmtRelative, fmtWeekRange, monthWeeks, monthOf, addMonths, diffDays, cap } from '../dates.js';
 
 function greeting() {
   const h = new Date().getHours();
@@ -83,6 +83,38 @@ function widgetCalendario(ctx) {
         ${cells}
       </div>
       <div class="legend"><span><i class="dot" style="--c:var(--c-indigo)"></i>Eventos</span><span><i class="dot" style="--c:var(--c-blue)"></i>Tareas</span></div>`,
+  });
+}
+
+// Solo aparece si esta semana tiene un sprint abierto.
+function widgetSprint() {
+  const s = currentSprint();
+  if (!s) return '';
+  const tasks = sprintTasks(s);
+  const open = tasks.filter(isOpen).sort((a, b) => Number(b.status === 'doing') - Number(a.status === 'doing') || byDue(a, b));
+  const done = tasks.length - open.length;
+  return card({
+    title: 'Sprint de la semana',
+    ic: 'sprint',
+    cls: 'w-sprint',
+    action: cardLink('#/sprints', 'Abrir'),
+    body: `
+      <div class="sprint-mini">
+        <div class="sprint-mini-info">
+          <p class="card-sub">${esc(fmtWeekRange(s.start))} · Día ${diffDays(todayKey(), s.start) + 1} de 7</p>
+          ${s.goal.trim() ? `<div class="goal">${icon('target')}<p>${esc(s.goal.trim())}</p></div>` : ''}
+          <div class="sprint-progress">
+            <span class="muted">${tasks.length ? `${done} de ${plural(tasks.length, 'tarea hecha', 'tareas hechas')}` : 'Sin tareas todavía'}</span>
+            ${tasks.length ? progressBar(done, tasks.length) : ''}
+          </div>
+        </div>
+        <div class="sprint-mini-tasks">
+          ${open.length
+    ? `<div class="list">${open.slice(0, 4).map((t) => taskRow(t, { sprint: false, category: false })).join('')}</div>
+             ${open.length > 4 ? `<a class="more-link" href="#/sprints">Ver las ${open.length} que quedan</a>` : ''}`
+    : `<p class="day-empty">${tasks.length ? 'Todo lo de esta semana está hecho.' : 'Elige las tareas en las que quieres avanzar esta semana.'}</p>`}
+        </div>
+      </div>`,
   });
 }
 
@@ -166,6 +198,7 @@ function widgetActividad() {
 const RENDER = {
   hoy: widgetHoy,
   calendario: widgetCalendario,
+  sprint: widgetSprint,
   tareas: widgetTareas,
   eventos: widgetEventos,
   proyectos: widgetProyectos,

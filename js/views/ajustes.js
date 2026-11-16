@@ -9,7 +9,7 @@ import { categories } from '../query.js';
 import { openCategoryForm } from '../forms.js';
 import { todayKey, fmtMoment } from '../dates.js';
 
-export const APP_VERSION = '0.1.0'; // la misma que VERSION en sw.js
+export const APP_VERSION = '0.2.0'; // la misma que VERSION en sw.js
 
 const THEMES = [['auto', 'Como el dispositivo'], ['light', 'Claro'], ['dark', 'Oscuro']];
 
@@ -51,7 +51,8 @@ function dataSection() {
     plural(st.tasks.length, 'tarea', 'tareas'),
     plural(st.projects.length, 'proyecto', 'proyectos'),
     plural(st.events.length, 'evento', 'eventos'),
-  ].join(' · ');
+    st.sprints.length ? plural(st.sprints.length, 'sprint', 'sprints') : '',
+  ].filter(Boolean).join(' · ');
   return section('Tus datos', 'download', `
     <p class="muted">${esc(summary)} · ${kb}&nbsp;KB</p>
     ${hasSaveError() || readOnly ? '<p class="notice danger">Los últimos cambios siguen sin guardarse en este dispositivo. Descarga una copia para conservarlos.</p>' : ''}
@@ -184,7 +185,7 @@ export function mount(root, ctx) {
   root.querySelector('[data-reset]')?.addEventListener('click', async () => {
     const ok = await confirmDialog({
       title: 'Borrar todo',
-      message: 'Se borrarán tus tareas, proyectos, eventos, notas e historial de este dispositivo. Descarga antes una copia si quieres conservarlos.',
+      message: 'Se borrarán tus tareas, proyectos, eventos, sprints, notas e historial de este dispositivo. Descarga antes una copia si quieres conservarlos.',
       confirmText: 'Borrar todo',
     });
     if (ok) { resetAll(); ctx.applyTheme(); toast('Datos borrados'); }

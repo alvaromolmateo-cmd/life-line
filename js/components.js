@@ -3,7 +3,7 @@
 
 import { esc, icon } from './ui.js';
 import { EVENT_TYPE_LABEL, EVENT_TYPE_COLOR, PRIORITY_LABEL, PROJECT_STATUS_LABEL } from './store.js';
-import { categoryOf, projectOf, isOpen, isOverdue, activityLabel, activityIcon } from './query.js';
+import { categoryOf, projectOf, isOpen, isOverdue, activityLabel, activityIcon, taskSprint, thisWeek } from './query.js';
 import { fmtRelative, fmtTimeRange, fmtDayMonth, fmtWeekday, fmtMoment, todayKey, cap } from './dates.js';
 
 export const chip = (text, { color = '', ic = '', cls = '' } = {}) => `
@@ -35,12 +35,20 @@ export const priorityChip = (priority) => {
 
 export const statusBadge = (status) => `<span class="badge badge-${status}">${esc(PROJECT_STATUS_LABEL[status])}</span>`;
 
-// Fila de tarea: casilla para completarla y el resto abre su ficha.
-export function taskRow(t, { project = true, due = true, category = true } = {}) {
+// Marca las tareas elegidas para el sprint de esta semana o de una de las siguientes.
+export const sprintChip = (t) => {
+  const s = taskSprint(t.id);
+  if (!s) return '';
+  return chip(s.start === thisWeek() ? 'Sprint' : `Sprint del ${fmtDayMonth(s.start)}`, { ic: 'sprint', cls: 'chip-sprint' });
+};
+
+// Fila de tarea: casilla para completarla y el resto abre su ficha. `after` es HTML para el final de la fila.
+export function taskRow(t, { project = true, due = true, category = true, sprint = true, status = true, after = '' } = {}) {
   const done = !isOpen(t);
   const meta = [
-    t.status === 'doing' ? chip('En curso', { cls: 'chip-doing' }) : '',
+    status && t.status === 'doing' ? chip('En curso', { cls: 'chip-doing' }) : '',
     due ? dueChip(t) : '',
+    sprint ? sprintChip(t) : '',
     project ? projectChip(t.projectId) : '',
     category ? categoryChip(t.categoryId) : '',
     priorityChip(t.priority),
@@ -53,6 +61,7 @@ export function taskRow(t, { project = true, due = true, category = true } = {})
         <span class="task-title">${esc(t.title)}</span>
         ${meta.trim() ? `<span class="task-meta">${meta}</span>` : ''}
       </button>
+      ${after}
     </div>`;
 }
 

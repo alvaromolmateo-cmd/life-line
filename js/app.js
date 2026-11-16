@@ -1,7 +1,7 @@
 // Arranque: enrutado por hash, render de vistas, acciones globales, tema, service worker e instalación.
 
 import { getState, subscribe, rescuedOnLoad, toggleTask, setSetting } from './store.js';
-import { refreshModal, isModalOpen, toast } from './ui.js';
+import { refreshModal, isModalOpen, toast, openMenu } from './ui.js';
 import { currentMonth, todayKey, monthOf } from './dates.js';
 import { openTaskForm, openEventForm, openProjectForm, openOrganize, openQuickAdd } from './forms.js';
 import { openSearch } from './search.js';
@@ -9,10 +9,11 @@ import * as inicio from './views/inicio.js';
 import * as calendario from './views/calendario.js';
 import * as tareas from './views/tareas.js';
 import * as proyectos from './views/proyectos.js';
+import * as sprints from './views/sprints.js';
 import * as ajustes from './views/ajustes.js';
 
-const views = { inicio, calendario, tareas, proyectos, ajustes };
-const titles = { inicio: 'Inicio', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos', ajustes: 'Ajustes' };
+const views = { inicio, calendario, tareas, proyectos, sprints, ajustes };
+const titles = { inicio: 'Inicio', calendario: 'Calendario', tareas: 'Tareas', proyectos: 'Proyectos', sprints: 'Sprints', ajustes: 'Ajustes' };
 
 // Estado de pantalla: lo que se está mirando, que no forma parte de los datos guardados.
 const ctx = {
@@ -72,7 +73,8 @@ function render() {
   }
 
   document.querySelectorAll('[data-nav]').forEach((a) => {
-    const on = a.dataset.nav === name;
+    // «Más», en la barra del móvil, reúne varios apartados.
+    const on = a.dataset.nav.split(' ').includes(name);
     a.classList.toggle('active', on);
     if (on) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
@@ -133,6 +135,12 @@ document.addEventListener('click', (e) => {
     case 'goto-day': goToDay(date); break;
     case 'search': openSearch({ goToDay }); break;
     case 'quick-add': openQuickAdd(el, currentRoute().name === 'calendario' ? { date: ctx.cal.day, due: ctx.cal.day } : {}); break;
+    case 'more':
+      openMenu(el, [
+        { label: 'Sprints', hint: 'Planificación semanal', icon: 'sprint', color: 'indigo', onClick: () => { location.hash = '#/sprints'; } },
+        { label: 'Ajustes', hint: 'Preferencias y copia de tus datos', icon: 'settings', color: 'slate', onClick: () => { location.hash = '#/ajustes'; } },
+      ]);
+      break;
     case 'toggle-theme':
       setSetting('theme', isDark() ? 'light' : 'dark');
       applyTheme();
