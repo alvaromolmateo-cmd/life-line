@@ -4,7 +4,7 @@ import { esc, icon, openModal, modalHeader, plural, toast } from '../ui.js';
 import { getState, addInbox, toggleWidget, moveWidget, WIDGET_LABEL } from '../store.js';
 import {
   openTasks, eventsOn, tasksOn, upcomingEvents, dayIndex, projectStats, recentActivity,
-  isOpen, isOverdue, byDue, currentSprint, sprintTasks, sprintsOn, journal, lateDeliveries,
+  isOpen, isOverdue, byDue, currentSprint, sprintTasks, sprintsOn, journal,
 } from '../query.js';
 import { taskRow, eventRow, card, cardLink, emptyState, progressBar, categoryChip, activityRow } from '../components.js';
 import { todayKey, toKey, fmtLong, fmtMonth, fmtRelative, fmtWeekRange, monthWeeks, monthOf, addMonths, diffDays, cap } from '../dates.js';
@@ -22,22 +22,18 @@ function widgetHoy() {
   const events = eventsOn(today);
   const due = tasksOn(today).filter(isOpen);
   const late = getState().tasks.filter(isOverdue).sort(byDue);
-  const lateDel = lateDeliveries();
   const doneToday = getState().tasks.filter((t) => !isOpen(t) && t.completedAt && toKey(new Date(t.completedAt)) === today).length;
   const summary = [
     events.length ? plural(events.length, 'evento', 'eventos') : '',
     due.length ? plural(due.length, 'tarea para hoy', 'tareas para hoy') : '',
     late.length ? plural(late.length, 'atrasada', 'atrasadas') : '',
-    lateDel.length ? plural(lateDel.length, 'entrega vencida', 'entregas vencidas') : '',
   ].filter(Boolean).join(' · ');
 
-  const body = !events.length && !due.length && !late.length && !lateDel.length
+  const body = !events.length && !due.length && !late.length
     ? emptyState('sparkle', 'Día despejado', doneToday ? `Hoy llevas ${plural(doneToday, 'tarea hecha', 'tareas hechas')}.` : 'Sin compromisos ni tareas con fecha para hoy.')
     : `
       ${summary ? `<p class="card-sub">${esc(summary)}</p>` : ''}
-      ${events.length ? `<div class="list">${events.map((e) => eventRow(e)).join('')}</div>` : ''}
-      ${lateDel.length ? `<p class="group-title late">Entregas vencidas</p><div class="list">${lateDel.map((e) => eventRow(e, { date: true })).join('')}</div>` : ''}
-      ${due.length ? `<p class="group-title">Para hoy</p><div class="list">${due.map((t) => taskRow(t, { due: false })).join('')}</div>` : ''}
+      ${events.length ? `<div class="list">${events.map((e) => eventRow(e)).join('')}</div>` : ''}      ${due.length ? `<p class="group-title">Para hoy</p><div class="list">${due.map((t) => taskRow(t, { due: false })).join('')}</div>` : ''}
       ${late.length ? `<p class="group-title late">Atrasadas</p><div class="list">${late.slice(0, 5).map((t) => taskRow(t)).join('')}</div>` : ''}
       ${late.length > 5 ? `<a class="more-link" href="#/tareas">Ver las ${late.length} atrasadas</a>` : ''}`;
 

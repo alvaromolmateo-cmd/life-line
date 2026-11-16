@@ -3,7 +3,7 @@
 
 import { esc, icon } from './ui.js';
 import { EVENT_TYPE_LABEL, EVENT_TYPE_COLOR, PRIORITY_LABEL, PROJECT_STATUS_LABEL } from './store.js';
-import { categoryOf, projectOf, isOpen, isOverdue, isDelivery, isLateDelivery, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
+import { categoryOf, projectOf, isOpen, isOverdue, isDelivered, isLateDelivery, taskDelivery, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
 import { fmtRelative, fmtTimeRange, fmtDayMonth, fmtWeekday, fmtMoment, todayKey, cap } from './dates.js';
 
 export const chip = (text, { color = '', ic = '', cls = '' } = {}) => `
@@ -48,8 +48,11 @@ export const sprintChip = (t) => {
 // Fila de tarea: casilla para completarla y el resto abre su ficha. `after` es HTML para el final de la fila.
 export function taskRow(t, { project = true, due = true, category = true, sprint = true, status = true, after = '' } = {}) {
   const done = !isOpen(t);
+  // La tarea de una entrega lo indica, con la hora límite si el evento la tiene.
+  const delivery = taskDelivery(t);
   const meta = [
     status && t.status === 'doing' ? chip('En curso', { cls: 'chip-doing' }) : '',
+    delivery ? chip(delivery.start ? `Entrega ${delivery.start}` : 'Entrega', { color: EVENT_TYPE_COLOR.delivery }) : '',
     due ? dueChip(t) : '',
     sprint ? sprintChip(t) : '',
     project ? projectChip(t.projectId) : '',
@@ -69,11 +72,13 @@ export function taskRow(t, { project = true, due = true, category = true, sprint
 }
 
 // Fila de evento. Con `date` muestra el día además de la hora.
-// Una entrega lleva delante su casilla, para marcarla como entregada antes o después de la fecha límite.
+// Una entrega enseña cómo va su tarea: tachada si ya está hecha, en rojo si venció sin hacerla.
 export function eventRow(e, { date = false, project = true } = {}) {
   const color = EVENT_TYPE_COLOR[e.type];
+  const delivered = isDelivered(e);
   const meta = [
     e.type !== 'event' ? chip(EVENT_TYPE_LABEL[e.type], { color }) : '',
+    delivered ? chip('Entregada', { ic: 'check', cls: 'chip-doing' }) : '',
     isLateDelivery(e) ? chip('Sin entregar', { cls: 'chip-late' }) : '',
     e.place ? chip(e.place, { ic: 'pin' }) : '',
     project ? projectChip(e.projectId) : '',
@@ -85,8 +90,8 @@ export function eventRow(e, { date = false, project = true } = {}) {
   const sub = date
     ? `${cap(e.date === todayKey() ? 'hoy' : fmtWeekday(e.date))} · ${fmtTimeRange(e.start, e.end)}`
     : fmtTimeRange(e.start, e.end);
-  const row = `
-    <button class="ev" data-act="open-event" data-id="${e.id}" style="--c:var(--c-${color})">
+  return `
+    <button class="ev ${delivered ? 'ev-done' : ''}" data-act="open-event" data-id="${e.id}" style="--c:var(--c-${color})">
       ${when || '<i class="ev-bar"></i>'}
       <span class="ev-body">
         <span class="ev-title">${esc(e.title)}</span>
@@ -94,12 +99,6 @@ export function eventRow(e, { date = false, project = true } = {}) {
         ${meta.trim() ? `<span class="task-meta">${meta}</span>` : ''}
       </span>
     </button>`;
-  if (!isDelivery(e)) return row;
-  return `
-    <div class="ev-row ${e.done ? 'done' : ''}">
-      <button class="check ${e.done ? 'on' : ''}" data-act="toggle-event" data-id="${e.id}" aria-pressed="${e.done}" aria-label="${e.done ? 'Marcar como sin entregar' : 'Marcar como entregada'}">${icon('check')}</button>
-      ${row}
-    </div>`;
 }
 
 export const progressBar = (done, total) => `

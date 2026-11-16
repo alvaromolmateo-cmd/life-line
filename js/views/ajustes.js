@@ -9,7 +9,7 @@ import { topCategories, subcategories } from '../query.js';
 import { openCategoryForm } from '../forms.js';
 import { todayKey, fmtMoment } from '../dates.js';
 
-export const APP_VERSION = '1.1.0'; // la misma que VERSION en sw.js
+export const APP_VERSION = '1.2.0'; // la misma que VERSION en sw.js
 
 const THEMES = [['auto', 'Como el dispositivo'], ['light', 'Claro'], ['dark', 'Oscuro']];
 

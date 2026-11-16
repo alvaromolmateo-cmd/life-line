@@ -374,12 +374,9 @@ h1 { font-size: 27px; line-height: 1.2; font-weight: 700; letter-spacing: -.02em
 .ev-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ev-title { font-weight: 550; }
 .ev-sub { font-size: 12.5px; color: var(--text-2); }
-/* Entrega: la casilla va delante del evento, como en las tareas. */
-.ev-row { display: flex; align-items: flex-start; gap: 11px; }
-.ev-row > .check { margin-top: 10px; }
-.ev-row > .ev { flex: 1; min-width: 0; }
-.ev-row.done .ev-title { color: var(--muted); text-decoration: line-through; }
-.ev-row.done .ev-sub, .ev-row.done .task-meta { opacity: .65; }
+/* Entrega cuya tarea ya está hecha. */
+.ev.ev-done .ev-title { color: var(--muted); text-decoration: line-through; }
+.ev.ev-done .ev-sub { opacity: .65; }
 
 /* ---------- Inicio ---------- */
 .dash { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 18px; grid-auto-flow: row dense; }
@@ -708,6 +705,9 @@ a.chip:hover, button.chip:hover { color: var(--primary); }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field-label { font-size: 12.5px; font-weight: 650; color: var(--text-2); }
 .field-hint { font-size: 12.5px; color: var(--muted); margin-top: -6px; }
+.field-hint b { color: var(--text-2); font-weight: 650; }
+.delivery-note { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.delivery-note .field-hint { margin-top: 0; }
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea {
   width: 100%; min-height: 42px; padding: 9px 12px;
   border: 1px solid var(--border-strong); border-radius: 11px;

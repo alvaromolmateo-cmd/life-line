@@ -51,12 +51,15 @@ export const eventsOn = (key) => getState().events.filter((e) => e.date === key)
 
 export const upcomingEvents = (from = todayKey()) => getState().events.filter((e) => e.date >= from).sort(byTime);
 
-// Entregas: eventos que se marcan como entregados. Vencida es la que sigue sin entregar pasada su fecha.
+// Entregas: un evento con su tarea, que es la que se marca. Su fecha es la fecha límite de la tarea:
+// pasado ese día sin hacerla, la tarea queda atrasada y la entrega, sin entregar.
 export const isDelivery = (e) => e.type === 'delivery';
-export const isLateDelivery = (e) => isDelivery(e) && !e.done && e.date < todayKey();
-export const lateDeliveries = () => getState().events.filter(isLateDelivery).sort(byTime);
+export const deliveryTask = (e) => (isDelivery(e) && e.taskId ? taskOf(e.taskId) : null);
+export const taskDelivery = (t) => getState().events.find((e) => e.taskId === t.id) || null;
+export const isDelivered = (e) => !!deliveryTask(e) && !isOpen(deliveryTask(e));
+export const isLateDelivery = (e) => isDelivery(e) && !isDelivered(e) && e.date < todayKey();
 // «Entregada», «Sin entregar» si ya venció, o nada.
-export const deliveryState = (e) => (!isDelivery(e) ? '' : e.done ? 'Entregada' : isLateDelivery(e) ? 'Sin entregar' : '');
+export const deliveryState = (e) => (!isDelivery(e) ? '' : isDelivered(e) ? 'Entregada' : isLateDelivery(e) ? 'Sin entregar' : '');
 
 // Índice por día para pintar calendarios: clave → { events: [...], tasks: [...] }.
 export function dayIndex() {
@@ -65,8 +68,10 @@ export function dayIndex() {
     if (!map.has(key)) map.set(key, { events: [], tasks: [] });
     return map.get(key);
   };
+  // La tarea de una entrega no se pinta aparte: en la cuadrícula ya está su evento.
+  const linked = new Set(getState().events.map((e) => e.taskId).filter(Boolean));
   for (const e of getState().events) slot(e.date).events.push(e);
-  for (const t of getState().tasks) if (t.due) slot(t.due).tasks.push(t);
+  for (const t of getState().tasks) if (t.due && !linked.has(t.id)) slot(t.due).tasks.push(t);
   for (const s of map.values()) {
     s.events.sort(byTime);
     s.tasks.sort((a, b) => Number(!isOpen(a)) - Number(!isOpen(b)) || byDue(a, b));

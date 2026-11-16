@@ -9,7 +9,10 @@ import {
   TASK_STATUSES, TASK_STATUS_LABEL, PRIORITIES, PRIORITY_LABEL, PROJECT_STATUSES, PROJECT_STATUS_LABEL,
   EVENT_TYPES, EVENT_TYPE_LABEL, ENTRY_KINDS, ENTRY_KIND_LABEL, COLORS, COLOR_LABEL,
 } from './store.js';
-import { categories, categoryPath, topCategories, taskOf, eventOf, projectOf, categoryOf, journalOf, upcomingSprints, taskSprint, thisWeek, sprintsOn, byTime } from './query.js';
+import {
+  categories, categoryPath, topCategories, taskOf, eventOf, projectOf, categoryOf, journalOf, upcomingSprints, taskSprint, thisWeek, sprintsOn, byTime,
+  deliveryTask, taskDelivery, isOpen, isOverdue,
+} from './query.js';
 import { todayKey, addDays, fmtWeekRange, fmtShort, cap } from './dates.js';
 
 // ---------- Campos ----------
@@ -84,10 +87,17 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
   const v = { title: '', notes: '', status: 'pending', priority: 'normal', due: '', categoryId: '', projectId: '', tags: [], ...defaults, ...(task || {}) };
   if (!task && !defaults.priority && subPriority(v.categoryId)) v.priority = subPriority(v.categoryId);
   const sprintBefore = task ? (taskSprint(task.id)?.id || '') : (defaults.sprintId || '');
+  // La tarea de una entrega comparte título, notas, fecha, categoría y proyecto con su evento.
+  const delivery = task ? taskDelivery(task) : null;
   formModal({
-    title: task ? 'Tarea' : 'Nueva tarea',
+    title: task ? (delivery ? 'Tarea de una entrega' : 'Tarea') : 'Nueva tarea',
     saveText: task ? 'Guardar' : 'Crear tarea',
     body: `
+      ${delivery ? `
+        <div class="delivery-note">
+          <p class="field-hint">Va unida a la entrega del calendario${delivery.start ? `, con hora límite a las ${esc(delivery.start)}` : ''}. Lo que cambies aquí también cambia en el evento, y la fecha límite es el día de la entrega.</p>
+          <button type="button" class="btn btn-sm" data-act="open-event" data-id="${delivery.id}">${icon('calendar')}<span>Ver la entrega</span></button>
+        </div>` : ''}
       ${field('Título', `<input name="title" value="${esc(v.title)}" required autofocus autocomplete="off" placeholder="Qué hay que hacer">`)}
       ${field('Notas', `<textarea name="notes" rows="3" placeholder="Detalles, enlaces, pasos…">${esc(v.notes)}</textarea>`)}
       <div class="row2">
@@ -95,7 +105,7 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
         ${selectField('Prioridad', 'priority', PRIORITIES.map((p) => [p, PRIORITY_LABEL[p]]), v.priority)}
       </div>
       <div class="row2">
-        ${field('Fecha límite', `<input type="date" name="due" value="${esc(v.due)}">`)}
+        ${field('Fecha límite', `<input type="date" name="due" value="${esc(v.due)}"${delivery ? ' required' : ''}>`)}
         ${categoryField(v.categoryId)}
       </div>
       ${projectField(v.projectId)}
@@ -118,7 +128,10 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
       });
     },
     onDelete: task ? async () => {
-      const ok = await confirmDialog({ title: 'Eliminar tarea', message: `Se eliminará «${esc(task.title)}».` });
+      const ok = await confirmDialog({
+        title: delivery ? 'Eliminar entrega' : 'Eliminar tarea',
+        message: `Se eliminará «${esc(task.title)}»${delivery ? ' junto con su entrega del calendario' : ''}.`,
+      });
       if (ok) { removeTask(task.id); toast('Tarea eliminada'); } else openTaskForm({ id });
     } : null,
   });
@@ -128,7 +141,8 @@ export function openTaskForm({ id = null, defaults = {}, onSaved } = {}) {
 export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
   const event = id ? eventOf(id) : null;
   if (id && !event) return;
-  const v = { title: '', type: 'event', date: todayKey(), start: '', end: '', place: '', notes: '', categoryId: '', projectId: '', done: false, ...defaults, ...(event || {}) };
+  const v = { title: '', type: 'event', date: todayKey(), start: '', end: '', place: '', notes: '', categoryId: '', projectId: '', ...defaults, ...(event || {}) };
+  const linked = event ? deliveryTask(event) : null;
   formModal({
     title: event ? 'Evento' : 'Nuevo evento',
     saveText: event ? 'Guardar' : 'Crear evento',
@@ -138,13 +152,11 @@ export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
         ${selectField('Tipo', 'type', EVENT_TYPES.map((t) => [t, EVENT_TYPE_LABEL[t]]), v.type)}
         ${field('Fecha', `<input type="date" name="date" value="${esc(v.date)}" required>`)}
       </div>
-      <div class="field" data-delivery${v.type === 'delivery' ? '' : ' hidden'}>
-        <label class="switch">
-          <input type="checkbox" name="done"${v.done ? ' checked' : ''}>
-          <span class="switch-track" aria-hidden="true"></span>
-          <span>Entregada</span>
-        </label>
-        <p class="field-hint">La fecha es el límite de entrega. Márcala cuando la entregues, aunque sea antes.</p>
+      <div class="delivery-note" data-delivery${v.type === 'delivery' ? '' : ' hidden'}>
+        <p class="field-hint">${linked
+    ? `Su tarea está ${isOpen(linked) ? (isOverdue(linked) ? '<b>atrasada</b>' : 'pendiente') : '<b>hecha</b>'}. Márcala en Tareas cuando la entregues; la fecha es su fecha límite.`
+    : 'Se creará una tarea con esta fecha como fecha límite. Es la que se marca cuando la entregues, y pasada la fecha queda atrasada.'}</p>
+        ${linked ? `<button type="button" class="btn btn-sm" data-act="open-task" data-id="${linked.id}">${icon('check-square')}<span>Ver la tarea</span></button>` : ''}
       </div>
       <div class="row2">
         ${field('Empieza', `<input type="time" name="start" value="${esc(v.start)}">`)}
@@ -158,11 +170,10 @@ export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
         ${projectField(v.projectId)}
       </div>`,
     onSave: (data) => {
-      const payload = { ...data, done: data.done === 'on' };
-      if (event) updateEvent(event.id, payload);
-      else addEvent(payload);
+      if (event) updateEvent(event.id, data);
+      else addEvent(data);
       onSaved?.();
-      if (!event) toast('Evento creado');
+      if (!event) toast(data.type === 'delivery' ? 'Entrega creada, con su tarea' : 'Evento creado');
     },
     onMount: (form) => {
       form.elements.type.addEventListener('change', () => {
@@ -170,7 +181,10 @@ export function openEventForm({ id = null, defaults = {}, onSaved } = {}) {
       });
     },
     onDelete: event ? async () => {
-      const ok = await confirmDialog({ title: 'Eliminar evento', message: `Se eliminará «${esc(event.title)}».` });
+      const ok = await confirmDialog({
+        title: linked ? 'Eliminar entrega' : 'Eliminar evento',
+        message: `Se eliminará «${esc(event.title)}»${linked ? ' junto con su tarea' : ''}.`,
+      });
       if (ok) { removeEvent(event.id); toast('Evento eliminado'); } else openEventForm({ id });
     } : null,
   });

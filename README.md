@@ -13,7 +13,7 @@ Todos los apartados del planteamiento inicial, más categorías con subcategorí
 | Apartado | Para qué sirve |
 | --- | --- |
 | **Inicio** | Visión general: tu día, calendario, tareas pendientes, próximos eventos, proyectos activos, bandeja de entrada y actividad reciente. Cada bloque se puede ocultar o recolocar desde «Personalizar». |
-| **Calendario** | Eventos, citas, exámenes, entregas y fechas importantes, cada tipo con su color. Vistas de mes, semana y día. Muestra también las tareas con fecha límite y admite una anotación libre por día. Las entregas llevan casilla: se marcan como entregadas cuando se hagan, antes o después de su fecha límite, sin tener que crear además una tarea. |
+| **Calendario** | Eventos, citas, exámenes, entregas y fechas importantes, cada tipo con su color. Vistas de mes, semana y día. Muestra también las tareas con fecha límite y admite una anotación libre por día. Cada entrega crea su propia tarea, con el día de la entrega como fecha límite: se marca en Tareas cuando se entregue, antes de ese día o después, y pasado ese día queda atrasada. |
 | **Tareas** | Pendientes agrupadas por fecha (atrasadas, hoy, próximos 7 días, más adelante, sin fecha), con estado, prioridad, categoría, proyecto y etiquetas. Incluye la bandeja de entrada y el historial de tareas hechas. |
 | **Proyectos** | Descripción, objetivo, estado, prioridad y fechas. Cada ficha reúne sus tareas, sus notas, ideas y avances, sus eventos y su historial. |
 | **Sprints** | Planificación semanal opcional. Cada semana puede tener un sprint con su objetivo y una selección de tareas tomadas de la lista general o de los proyectos. Un tablero las reparte en pendientes, en curso y hechas, y al cerrar la semana se guarda una revisión de lo conseguido y una reflexión. El historial conserva todos los sprints. |
@@ -90,7 +90,7 @@ inbox        { id, text, createdAt }
 tasks        { id, title, notes, status, priority, due, categoryId, projectId, tags[], createdAt, completedAt }
 projects     { id, title, description, goal, status, priority, start, end, categoryId, tags[],
                entries[{ id, kind, text, at }], createdAt, completedAt }
-events       { id, title, type, date, start, end, place, notes, categoryId, projectId, done, doneAt, createdAt }
+events       { id, title, type, date, start, end, place, notes, categoryId, projectId, taskId, createdAt }
 sprints      { id, start, goal, taskIds[], review, reflection, result[{ id, title, done, completedAt }],
                createdAt, closedAt }
 journal      { id, date, title, text, starred, categoryId, projectId, eventId, tags[], createdAt, updatedAt }
@@ -100,7 +100,7 @@ settings     { name, theme, calendarMode, useSprints, dashboard[{ id, on }] }
 ```
 
 - `tasks.status` – `pending`, `doing` o `done`. `events.type` – `event`, `appointment`, `exam`, `delivery` o `date`. `entries.kind` – `note`, `idea` o `progress`.
-- Una entrega (`events.type` = `delivery`) es la fecha límite de algo que hay que entregar. Es el único tipo de evento que se marca: `done` dice si ya se entregó y `doneAt`, cuándo. Puede marcarse antes de su fecha; si la fecha pasa sin marcarla, figura como vencida en Inicio y en su proyecto. Así no hace falta repetir la entrega como tarea.
+- Una entrega (`events.type` = `delivery`) va unida a su tarea por `taskId`. El evento marca la fecha y la tarea es la que se hace: aparece en Tareas, cuenta en el proyecto y puede ir a un sprint. Comparten título, notas, categoría, proyecto y fecha (la fecha del evento es la fecha límite de la tarea); se cambie desde donde se cambie, el otro lado se actualiza. Borrar uno borra el otro. Si el evento deja de ser una entrega, su tarea se queda como una tarea más. Al pasar a la versión 5 de los datos, cada entrega que ya existía se une a la tarea con el mismo título y fecha límite si la había, o se le crea una.
 - Un sprint es una semana de lunes a domingo y `sprints.start` es su lunes; hay como mucho uno por semana. Guarda solo los identificadores de sus tareas, así que una tarea sigue siendo única aunque esté en un proyecto, en el calendario y en la semana. Su estado sale de las fechas: planificado, en curso, por revisar o cerrado.
 - Al cerrar un sprint, `result` guarda cómo quedó cada tarea con el título que tenía, para que el historial se siga entendiendo aunque la tarea cambie o se borre. Las tareas abiertas pueden pasar al sprint de la semana siguiente.
 - Una categoría con `parentId` es una subcategoría de esa categoría principal. Hay un solo nivel. Al borrar una subcategoría, lo clasificado en ella pasa a su categoría principal; al borrar una principal se borran también sus subcategorías y lo clasificado queda sin categoría.

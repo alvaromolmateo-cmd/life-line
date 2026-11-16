@@ -8,7 +8,7 @@ import { uid } from './ui.js';
 import { isKey, isTime, weekStart, todayKey, addDays, fmtWeekRange, fmtLong } from './dates.js';
 
 const STORAGE_KEY = 'lifeline:data';
-export const DATA_VERSION = 4;
+export const DATA_VERSION = 5;
 
 export const TASK_STATUSES = ['pending', 'doing', 'done'];
 export const TASK_STATUS_LABEL = { pending: 'Pendiente', doing: 'En curso', done: 'Hecha' };
@@ -97,6 +97,7 @@ const cleanTags = (v) => {
 const refsOf = (st) => ({
   cats: new Set(st.categories.map((c) => c.id)),
   projects: new Set(st.projects.map((p) => p.id)),
+  tasks: new Set((Array.isArray(st.tasks) ? st.tasks : []).filter(Boolean).map((t) => t.id)),
   events: new Set((Array.isArray(st.events) ? st.events : []).filter(Boolean).map((e) => e.id)),
 });
 
@@ -165,20 +166,20 @@ function normTask(t, refs) {
   };
 }
 
-// Una entrega es la fecha límite de algo que hay que entregar: se marca como entregada el día que
-// se haga, antes de esa fecha o después. Los demás tipos de evento no se marcan.
+// Una entrega es la fecha límite de algo que hay que entregar y va unida a su tarea (`taskId`), que
+// es la que se marca como hecha. Ver «Entregas» más abajo.
 function normEvent(e, refs) {
   const start = cleanTime(e.start);
   const end = start ? cleanTime(e.end) : '';
   const type = oneOf(e.type, EVENT_TYPES, 'event');
-  const done = type === 'delivery' && e.done === true;
+  // `done` y `doneAt` eran la marca de la versión 1.1, cuando la entrega se marcaba en el propio evento.
+  const { done: _done, doneAt: _doneAt, ...rest } = e;
   return {
-    ...e,
+    ...rest,
     id: str(e.id) || uid(),
     title: str(e.title).trim() || 'Evento',
     type,
-    done,
-    doneAt: done ? (cleanIso(e.doneAt) || now()) : '',
+    taskId: type === 'delivery' && refs.tasks.has(e.taskId) ? e.taskId : '',
     date: cleanKey(e.date),
     start,
     end: end && end > start ? end : '',
@@ -246,6 +247,77 @@ function normDashboard(list) {
   return out;
 }
 
+// ---------- Entregas ----------
+// Una entrega es un evento del calendario y a la vez una tarea: el evento marca la fecha límite y la
+// tarea es la que se marca como hecha, aparece en Tareas, cuenta en su proyecto y puede ir a un sprint.
+// Comparten título, notas, categoría, proyecto y fecha: la fecha del evento es la fecha límite de la
+// tarea. Se cambie desde donde se cambie, el otro lado se pone igual.
+const SHARED = ['title', 'notes', 'categoryId', 'projectId'];
+
+function copyToTask(task, ev) {
+  for (const k of SHARED) task[k] = ev[k];
+  task.due = ev.date;
+}
+
+function copyToEvent(ev, task) {
+  for (const k of SHARED) ev[k] = task[k];
+  // La entrega no puede quedarse sin fecha: si se borra en la tarea, vuelve a la del evento.
+  if (task.due) ev.date = task.due;
+  else task.due = ev.date;
+}
+
+const deliveryOfTask = (st, taskId) => st.events.find((e) => e.taskId === taskId) || null;
+
+// Crea la tarea de una entrega que aún no la tiene. `legacy` es el evento tal como estaba guardado.
+function newDeliveryTask(st, ev, legacy = {}) {
+  const delivered = legacy.done === true;
+  const task = normTask({
+    id: uid(),
+    status: delivered ? 'done' : 'pending',
+    createdAt: cleanIso(ev.createdAt) || now(),
+    completedAt: delivered ? legacy.doneAt : '',
+  }, refsOf(st));
+  copyToTask(task, ev);
+  st.tasks.push(task);
+  return task;
+}
+
+// Al cargar o importar: cada entrega queda unida a una sola tarea. Si ya existía una tarea con el
+// mismo título y esa fecha límite (la que se creaba a mano antes de la versión 5), se une a ella en
+// lugar de crear otra, y lo que solo tuviera la tarea pasa también al evento.
+function linkAllDeliveries(st, legacyById) {
+  const used = new Set();
+  const same = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+  for (const ev of st.events) {
+    if (ev.type !== 'delivery') continue;
+    if (used.has(ev.taskId)) ev.taskId = '';
+    let task = ev.taskId ? st.tasks.find((t) => t.id === ev.taskId) : null;
+    if (!task) {
+      task = st.tasks.find((t) => !used.has(t.id) && t.due === ev.date && same(t.title, ev.title)
+        && !st.events.some((o) => o.taskId === t.id)) || null;
+      if (task) for (const k of ['notes', 'categoryId', 'projectId']) if (!ev[k]) ev[k] = task[k];
+    }
+    if (!task) task = newDeliveryTask(st, ev, legacyById.get(ev.id));
+    ev.taskId = task.id;
+    copyToTask(task, ev);
+    used.add(task.id);
+  }
+}
+
+// Quita una tarea de la lista y de los sprints abiertos.
+function dropTask(st, task) {
+  st.tasks = st.tasks.filter((t) => t.id !== task.id);
+  // Los sprints cerrados conservan su resumen; de los abiertos sale sin más.
+  for (const s of st.sprints) if (!s.closedAt) s.taskIds = s.taskIds.filter((x) => x !== task.id);
+  log(st, 'deleted', 'task', task);
+}
+
+function dropEvent(st, event) {
+  st.events = st.events.filter((e) => e.id !== event.id);
+  for (const j of st.journal) if (j.eventId === event.id) j.eventId = '';
+  log(st, 'deleted', 'event', event);
+}
+
 // Adapta datos guardados o importados a la estructura actual, conservando lo que no conoce.
 function migrate(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Formato no válido');
@@ -264,7 +336,11 @@ function migrate(data) {
 
   out.inbox = (Array.isArray(data.inbox) ? data.inbox : []).filter(Boolean).map(normInbox).filter((n) => n.text);
   out.tasks = (Array.isArray(data.tasks) ? data.tasks : []).filter(Boolean).map((t) => normTask(t, refs));
-  out.events = (Array.isArray(data.events) ? data.events : []).filter(Boolean).map((e) => normEvent(e, refs)).filter((e) => e.date);
+  refs = refsOf(out);
+  const rawEvents = (Array.isArray(data.events) ? data.events : []).filter(Boolean);
+  out.events = rawEvents.map((e) => normEvent(e, refs)).filter((e) => e.date);
+  // Versión 5 – Cada entrega tiene su tarea. Se repasa siempre, también al importar.
+  linkAllDeliveries(out, new Map(rawEvents.map((e) => [str(e.id), e])));
 
   refs = refsOf(out);
   out.journal = (Array.isArray(data.journal) ? data.journal : []).filter(Boolean).map((j) => normJournal(j, refs)).filter((j) => j.date && (j.text.trim() || j.title));
@@ -458,6 +534,9 @@ export function updateTask(id, patch) {
     const next = normTask({ ...task, ...patch, completedAt: task.completedAt }, refsOf(st));
     if (!wasDone && next.status === 'done') next.completedAt = now();
     Object.assign(task, next);
+    // La tarea de una entrega pasa sus cambios al evento.
+    const delivery = deliveryOfTask(st, id);
+    if (delivery) copyToEvent(delivery, task);
     if (!wasDone && task.status === 'done') log(st, 'completed', 'task', task);
     if (wasDone && task.status !== 'done') log(st, 'reopened', 'task', task);
   });
@@ -468,14 +547,14 @@ export function toggleTask(id) {
   if (task) updateTask(id, { status: task.status === 'done' ? 'pending' : 'done' });
 }
 
+// Si es la tarea de una entrega, se va también el evento.
 export function removeTask(id) {
   update((st) => {
     const task = st.tasks.find((t) => t.id === id);
     if (!task) return;
-    st.tasks = st.tasks.filter((t) => t.id !== id);
-    // Los sprints cerrados conservan su resumen; de los abiertos sale sin más.
-    for (const s of st.sprints) if (!s.closedAt) s.taskIds = s.taskIds.filter((x) => x !== id);
-    log(st, 'deleted', 'task', task);
+    const delivery = deliveryOfTask(st, id);
+    dropTask(st, task);
+    if (delivery) dropEvent(st, delivery);
   });
 }
 
@@ -538,43 +617,47 @@ export function removeProjectEntry(projectId, entryId) {
 export function addEvent(data) {
   let id = null;
   update((st) => {
-    const event = normEvent({ ...data, id: uid(), createdAt: now() }, refsOf(st));
+    const event = normEvent({ ...data, taskId: '', id: uid(), createdAt: now() }, refsOf(st));
     if (!event.date) return;
     id = event.id;
     st.events.push(event);
     log(st, 'created', 'event', event);
-    if (event.done) log(st, 'completed', 'event', event);
+    if (event.type === 'delivery') {
+      const task = newDeliveryTask(st, event);
+      event.taskId = task.id;
+      log(st, 'created', 'task', task);
+    }
   });
   return id;
 }
 
+// Si pasa a ser una entrega, se le crea su tarea. Si deja de serlo, su tarea se queda como una tarea más.
 export function updateEvent(id, patch) {
   update((st) => {
     const event = st.events.find((e) => e.id === id);
     if (!event) return;
-    const wasDone = event.done;
-    const next = normEvent({ ...event, ...patch, doneAt: event.doneAt }, refsOf(st));
+    const next = normEvent({ ...event, ...patch, taskId: event.taskId }, refsOf(st));
     if (!next.date) return;
-    if (!wasDone && next.done) next.doneAt = now();
     Object.assign(event, next);
-    if (!wasDone && event.done) log(st, 'completed', 'event', event);
-    // Si deja de ser una entrega, no se apunta como reabierta.
-    if (wasDone && !event.done && event.type === 'delivery') log(st, 'reopened', 'event', event);
+    if (event.type !== 'delivery') return;
+    let task = event.taskId ? st.tasks.find((t) => t.id === event.taskId) : null;
+    if (!task) {
+      task = newDeliveryTask(st, event);
+      event.taskId = task.id;
+      log(st, 'created', 'task', task);
+    }
+    copyToTask(task, event);
   });
 }
 
-export function toggleEventDone(id) {
-  const event = state.events.find((e) => e.id === id);
-  if (event?.type === 'delivery') updateEvent(id, { done: !event.done });
-}
-
+// Una entrega y su tarea son lo mismo: al borrar una se borra la otra.
 export function removeEvent(id) {
   update((st) => {
     const event = st.events.find((e) => e.id === id);
     if (!event) return;
-    st.events = st.events.filter((e) => e.id !== id);
-    for (const j of st.journal) if (j.eventId === id) j.eventId = '';
-    log(st, 'deleted', 'event', event);
+    const task = event.taskId ? st.tasks.find((t) => t.id === event.taskId) : null;
+    dropEvent(st, event);
+    if (task) dropTask(st, task);
   });
 }
 
