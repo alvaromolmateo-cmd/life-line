@@ -1,7 +1,7 @@
 // Service worker: precachea la app y sirve con «red primero, caché si falla», para que funcione sin conexión
 // y a la vez reciba las actualizaciones en cuanto haya red.
 
-const VERSION = 'v1.0.0'; // la misma que APP_VERSION en js/views/ajustes.js
+const VERSION = 'v1.1.0'; // la misma que APP_VERSION en js/views/ajustes.js
 const CACHE = `lifeline-${VERSION}`;
 const ASSETS = [
   './',
