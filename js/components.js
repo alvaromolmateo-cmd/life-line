@@ -3,7 +3,7 @@
 
 import { esc, icon } from './ui.js';
 import { EVENT_TYPE_LABEL, EVENT_TYPE_COLOR, PRIORITY_LABEL, PROJECT_STATUS_LABEL } from './store.js';
-import { categoryOf, projectOf, isOpen, isOverdue, isDelivered, isLateDelivery, taskDelivery, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
+import { categoryOf, projectOf, isOpen, isOverdue, isDelivered, isLateDelivery, taskDelivery, taskExam, activityLabel, activityIcon, taskSprint, thisWeek, sprintsOn } from './query.js';
 import { fmtRelative, fmtTimeRange, fmtDayMonth, fmtWeekday, fmtMoment, todayKey, cap } from './dates.js';
 
 export const chip = (text, { color = '', ic = '', cls = '' } = {}) => `
@@ -51,9 +51,13 @@ export function taskRow(t, { project = true, due = true, category = true, sprint
   const done = !isOpen(t);
   // La tarea de una entrega lo indica, con la hora límite si el evento la tiene.
   const delivery = taskDelivery(t);
+  // La de estudiar un examen dice cuándo es: a qué hora o, si la tarea vence antes, qué día.
+  const exam = delivery ? null : taskExam(t);
+  const examWhen = !exam ? '' : t.due !== exam.date ? fmtRelative(exam.date).toLowerCase() : exam.start;
   const meta = [
     status && t.status === 'doing' ? chip('En curso', { cls: 'chip-doing' }) : '',
     delivery ? chip(delivery.start ? `Entrega ${delivery.start}` : 'Entrega', { color: EVENT_TYPE_COLOR.delivery }) : '',
+    exam ? chip(examWhen ? `Examen ${examWhen}` : 'Examen', { color: EVENT_TYPE_COLOR.exam }) : '',
     due ? dueChip(t) : '',
     sprint ? sprintChip(t) : '',
     project ? projectChip(t.projectId) : '',

@@ -191,8 +191,10 @@ const byDueAsBefore = (a, b) => (a.due || '9999').localeCompare(b.due || '9999')
   || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]
   || a.createdAt.localeCompare(b.createdAt);
 
-// Una entrega es la fecha límite de algo que hay que entregar y va unida a su tarea (`taskId`), que
-// es la que se marca como hecha. Ver «Entregas» más abajo.
+// Las entregas y los exámenes van unidos a una tarea (`taskId`). La de una entrega es la propia entrega,
+// la que se marca como hecha; la de un examen es estudiarlo. Ver «Entregas» y «Exámenes» más abajo.
+const LINKED_TYPES = ['delivery', 'exam'];
+
 function normEvent(e, refs) {
   const start = cleanTime(e.start);
   const end = start ? cleanTime(e.end) : '';
@@ -204,7 +206,7 @@ function normEvent(e, refs) {
     id: str(e.id) || uid(),
     title: str(e.title).trim() || 'Evento',
     type,
-    taskId: type === 'delivery' && refs.tasks.has(e.taskId) ? e.taskId : '',
+    taskId: LINKED_TYPES.includes(type) && refs.tasks.has(e.taskId) ? e.taskId : '',
     date: cleanKey(e.date),
     start,
     end: end && end > start ? end : '',
@@ -291,7 +293,7 @@ function copyToEvent(ev, task) {
   else task.due = ev.date;
 }
 
-const deliveryOfTask = (st, taskId) => st.events.find((e) => e.taskId === taskId) || null;
+const deliveryOfTask = (st, taskId) => st.events.find((e) => e.type === 'delivery' && e.taskId === taskId) || null;
 
 // Crea la tarea de una entrega que aún no la tiene. `legacy` es el evento tal como estaba guardado.
 function newDeliveryTask(st, ev, legacy = {}) {
@@ -327,6 +329,56 @@ function linkAllDeliveries(st, legacyById) {
     ev.taskId = task.id;
     copyToTask(task, ev);
     used.add(task.id);
+  }
+}
+
+// ---------- Exámenes ----------
+// Cada examen crea una tarea para estudiarlo, con el día del examen como fecha límite. Al contrario que
+// en las entregas, examen y tarea son dos cosas: hacer la tarea no tacha el examen y lo que se cambie en
+// la tarea no pasa al examen. Del examen a la tarea pasan el título, la fecha, la categoría y el
+// proyecto, pero solo mientras la tarea los tenga como el examen: si se cambian en ella, se respetan.
+// La fecha límite nunca pasa del día del examen.
+export const studyTitle = (title) => `Estudiar: ${title}`;
+
+const examOfTask = (st, taskId) => st.events.find((e) => e.type === 'exam' && e.taskId === taskId) || null;
+
+function newStudyTask(st, ev) {
+  const cat = st.categories.find((c) => c.id === ev.categoryId);
+  const task = normTask({
+    id: uid(),
+    title: studyTitle(ev.title),
+    due: ev.date,
+    categoryId: ev.categoryId,
+    projectId: ev.projectId,
+    // Como cualquier tarea nueva de una subcategoría, toma su prioridad.
+    priority: cat?.parentId ? cat.priority : 'normal',
+    order: nextOrder(st),
+    createdAt: now(),
+  }, refsOf(st));
+  st.tasks.push(task);
+  ev.taskId = task.id;
+  log(st, 'created', 'task', task);
+  return task;
+}
+
+// Lleva a la tarea lo que ha cambiado en el examen. `before` es el examen tal como estaba.
+function followExam(st, task, before, ev) {
+  if (task.title === studyTitle(before.title)) task.title = studyTitle(ev.title);
+  if (task.categoryId === before.categoryId) task.categoryId = ev.categoryId;
+  if (task.projectId === before.projectId && task.projectId !== ev.projectId) {
+    task.projectId = ev.projectId;
+    task.order = nextOrder(st);
+  }
+  if (task.due === before.date || task.due > ev.date) task.due = ev.date;
+}
+
+// Una tarea va unida, como mucho, a un evento. Las entregas ya se han repasado y tienen preferencia.
+function checkExamLinks(st) {
+  const taken = new Set(st.events.filter((e) => e.type === 'delivery').map((e) => e.taskId));
+  for (const ev of st.events) {
+    if (ev.type !== 'exam' || !ev.taskId) continue;
+    if (taken.has(ev.taskId)) ev.taskId = '';
+    else taken.add(ev.taskId);
   }
 }
 
@@ -367,6 +419,8 @@ function migrate(data) {
   out.events = rawEvents.map((e) => normEvent(e, refs)).filter((e) => e.date);
   // Versión 5 – Cada entrega tiene su tarea. Se repasa siempre, también al importar.
   linkAllDeliveries(out, new Map(rawEvents.map((e) => [str(e.id), e])));
+  // Los exámenes que ya existían no reciben tarea solos: se crea desde el propio examen si se quiere.
+  checkExamLinks(out);
 
   refs = refsOf(out);
   out.journal = (Array.isArray(data.journal) ? data.journal : []).filter(Boolean).map((j) => normJournal(j, refs)).filter((j) => j.date && (j.text.trim() || j.title));
@@ -571,9 +625,11 @@ function patchTask(st, id, patch) {
   // Al pasar a otro proyecto se coloca al final de sus tareas.
   if (next.projectId !== task.projectId) next.order = nextOrder(st);
   Object.assign(task, next);
-  // La tarea de una entrega pasa sus cambios al evento.
+  // La tarea de una entrega pasa sus cambios al evento. La de un examen no, pero no vence después de él.
   const delivery = deliveryOfTask(st, id);
   if (delivery) copyToEvent(delivery, task);
+  const exam = examOfTask(st, id);
+  if (exam && task.due > exam.date) task.due = exam.date;
   if (!wasDone && task.status === 'done') log(st, 'completed', 'task', task);
   if (wasDone && task.status !== 'done') log(st, 'reopened', 'task', task);
 }
@@ -596,14 +652,16 @@ export function toggleTask(id) {
   if (task) updateTask(id, { status: task.status === 'done' ? 'pending' : 'done' });
 }
 
-// Si es la tarea de una entrega, se va también el evento.
+// Si es la tarea de una entrega, se va también el evento. Si es la de un examen, el examen se queda.
 export function removeTask(id) {
   update((st) => {
     const task = st.tasks.find((t) => t.id === id);
     if (!task) return;
     const delivery = deliveryOfTask(st, id);
+    const exam = examOfTask(st, id);
     dropTask(st, task);
     if (delivery) dropEvent(st, delivery);
+    if (exam) exam.taskId = '';
   });
 }
 
@@ -676,20 +734,30 @@ export function addEvent(data) {
       event.taskId = task.id;
       log(st, 'created', 'task', task);
     }
+    if (event.type === 'exam') newStudyTask(st, event);
   });
   return id;
 }
 
-// Si pasa a ser una entrega, se le crea su tarea. Si deja de serlo, su tarea se queda como una tarea más.
+// Al cambiar de tipo, la tarea que tuviera se queda como una tarea más y, si pasa a ser una entrega o un
+// examen, se le crea la suya. Un examen cuya tarea se borró no la recupera al editarlo.
 export function updateEvent(id, patch) {
   update((st) => {
     const event = st.events.find((e) => e.id === id);
     if (!event) return;
+    const before = { ...event };
     const next = normEvent({ ...event, ...patch, taskId: event.taskId }, refsOf(st));
     if (!next.date) return;
+    const retyped = next.type !== before.type;
+    if (retyped) next.taskId = '';
     Object.assign(event, next);
-    if (event.type !== 'delivery') return;
     let task = event.taskId ? st.tasks.find((t) => t.id === event.taskId) : null;
+    if (event.type === 'exam') {
+      if (retyped) newStudyTask(st, event);
+      else if (task) followExam(st, task, before, event);
+      return;
+    }
+    if (event.type !== 'delivery') return;
     if (!task) {
       task = newDeliveryTask(st, event);
       event.taskId = task.id;
@@ -701,7 +769,20 @@ export function updateEvent(id, patch) {
   });
 }
 
-// Una entrega y su tarea son lo mismo: al borrar una se borra la otra.
+// La tarea para estudiar un examen que no la tiene: se borró o el examen es de antes de la versión 1.4.
+export function addStudyTask(eventId) {
+  let id = null;
+  update((st) => {
+    const event = st.events.find((e) => e.id === eventId);
+    if (!event || event.type !== 'exam') return;
+    const task = event.taskId ? st.tasks.find((t) => t.id === event.taskId) : null;
+    id = (task || newStudyTask(st, event)).id;
+  });
+  return id;
+}
+
+// Una entrega y su tarea son lo mismo: al borrar una se borra la otra. Al borrar un examen se borra
+// también su tarea para estudiarlo, que ya no tendría sentido.
 export function removeEvent(id) {
   update((st) => {
     const event = st.events.find((e) => e.id === id);

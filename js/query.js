@@ -63,11 +63,16 @@ export const upcomingEvents = (from = todayKey()) => getState().events.filter((e
 // pasado ese día sin hacerla, la tarea queda atrasada y la entrega, sin entregar.
 export const isDelivery = (e) => e.type === 'delivery';
 export const deliveryTask = (e) => (isDelivery(e) && e.taskId ? taskOf(e.taskId) : null);
-export const taskDelivery = (t) => getState().events.find((e) => e.taskId === t.id) || null;
+export const taskDelivery = (t) => getState().events.find((e) => isDelivery(e) && e.taskId === t.id) || null;
 export const isDelivered = (e) => !!deliveryTask(e) && !isOpen(deliveryTask(e));
 export const isLateDelivery = (e) => isDelivery(e) && !isDelivered(e) && e.date < todayKey();
 // «Entregada», «Sin entregar» si ya venció, o nada.
 export const deliveryState = (e) => (!isDelivery(e) ? '' : isDelivered(e) ? 'Entregada' : isLateDelivery(e) ? 'Sin entregar' : '');
+
+// Exámenes: cada uno puede tener su tarea para estudiarlo, que es una tarea más (ver store.js).
+export const isExam = (e) => e.type === 'exam';
+export const studyTask = (e) => (isExam(e) && e.taskId ? taskOf(e.taskId) : null);
+export const taskExam = (t) => getState().events.find((e) => isExam(e) && e.taskId === t.id) || null;
 
 // Índice por día para pintar calendarios: clave → { events: [...], tasks: [...] }.
 export function dayIndex() {
@@ -76,8 +81,9 @@ export function dayIndex() {
     if (!map.has(key)) map.set(key, { events: [], tasks: [] });
     return map.get(key);
   };
-  // La tarea de una entrega no se pinta aparte: en la cuadrícula ya está su evento.
-  const linked = new Set(getState().events.map((e) => e.taskId).filter(Boolean));
+  // La tarea de una entrega no se pinta aparte: en la cuadrícula ya está su evento. La de estudiar un
+  // examen sí, porque es otra cosa y puede tener otro día.
+  const linked = new Set(getState().events.filter(isDelivery).map((e) => e.taskId).filter(Boolean));
   for (const e of getState().events) slot(e.date).events.push(e);
   for (const t of getState().tasks) if (t.due && !linked.has(t.id)) slot(t.due).tasks.push(t);
   for (const s of map.values()) {
